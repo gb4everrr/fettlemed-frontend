@@ -1,7 +1,7 @@
 // src/app/clinic-admin/dashboard/patients/[id]/page.tsx
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, use } from 'react'; // Added 'use' import
 import Link from 'next/link';
 import { useAppSelector } from '@/lib/hooks';
 import api from '@/services/api';
@@ -27,10 +27,13 @@ interface ClinicPatient {
   registered_at: string;
 }
 
-export default function PatientProfilePage({ params }: { params: { id: string } }) {
+export default function PatientProfilePage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const { user } = useAppSelector((state) => state.auth);
-  const patientId = params.id;
+  
+  // Unwrap the params Promise
+  const resolvedParams = use(params);
+  const patientId = resolvedParams.id;
 
   const [patient, setPatient] = useState<ClinicPatient | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -144,7 +147,6 @@ export default function PatientProfilePage({ params }: { params: { id: string } 
         <div className="max-w-4xl mx-auto space-y-6">
           {/* Patient Overview Card (1 whole space) */}
           <Card padding="lg" className="flex items-center p-6 shadow-md">
-
             <div className="ml-6">
               <h2 className="text-2xl font-bold text-gray-800">{patient.first_name} {patient.last_name}</h2>
               <p className="text-sm text-gray-500">
@@ -203,10 +205,3 @@ export default function PatientProfilePage({ params }: { params: { id: string } 
     </ClinicDashboardLayout>
   );
 }
-
-// NOTE: This component assumes the following are available:
-// - useAppSelector hook for Redux state.
-// - api service for making authenticated API requests.
-// - <Card>, <Button>, <ClinicDashboardLayout> components.
-// - A component named <Avatar> and <AvatarFallback> from a UI library like shadcn/ui.
-// - `lucide-react` for icons.
