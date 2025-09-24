@@ -1,26 +1,203 @@
+/* src/app/globals.css */
+
 @import "tailwindcss";
 
+/* Custom CSS Variables - Refined Color Palette */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* Brand/Accent Colors from the Palette */
+  --color-primary-brand: #2D5367;   /* Image Palette: Mystic Green - For primary actions */
+  --color-primary-light: #10252A;   /* Lighter variant for hover states (derived) */
+  --color-secondary-brand: #2d5367; /* Image Palette: Peach and Quiet - For secondary accents */
+  --color-secondary-light: #276264;  /* Lighter variant for hover states (derived) */
+  
+  /* Neutral & Text Palette from the Image */
+  --color-background: #F8FBf8;     /* Image Palette: Eyeball - Main background */
+  --color-surface: #eae5e3;        /* Pure white for cards to pop against the 'Eyeball' bg */
+  --color-text-primary: #2d5367;   /* Image Palette: Sunken Ship - For main text */
+  --color-text-secondary: #276264; /* Image Palette: Regatta Bay - For secondary text */
+  --color-text-muted: #1f3b49;     /* Image Palette: Surfer - For placeholders */
+  --color-border: #e5e4e6;         /* Subtle border derived from the palette */
+  --color-border-focus: #70B8BA;   /* Using Surfer for a focused border state */
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background-color: var(--color-background);
+  color: var(--color-text-primary);
+  font-size: 15px;
+  line-height: 1.6;
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Modern Glassmorphism with Subtle Depth */
+.glassmorphic-card {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 5px;
+  
+  box-shadow: 
+    0 1px 3px rgba(0, 0, 0, 0.05),
+    0 1px 2px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.glassmorphic-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+}
+
+.glassmorphic-card:hover {
+  
+  box-shadow: 
+    0 -4px 12px rgba(0, 0, 0, 0.08),
+    0 -2px 6px rgba(0, 0, 0, 0.06);
+}
+
+.glassmorphic-navbar {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  transition: all 0.3s ease;
+}
+
+/* Modern Button with Shine Effect */
+.btn-base-style {
+  font-weight: 500;
+  border-radius: 7px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  outline: none;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  font-family: 'Inter', sans-serif;
+  letter-spacing: -0.01em;
+}
+
+/* Shine effect for buttons - Right to Left */
+.btn-shine::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.4),
+    transparent
+  );
+  transition: right 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  z-index: 2;
+}
+
+.btn-shine:hover::before {
+  right: 100%;
+}
+
+.btn-shine > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Gradient text with better contrast */
+.gradient-text {
+  background: linear-gradient(135deg, var(--color-primary-brand) 0%, var(--color-secondary-brand) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* Modern input styling */
+.input-modern {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 0.5px solid var(--color-border);
+  border-radius: 11px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  font-family: 'Inter', sans-serif;
+}
+
+.input-modern:focus {
+  border-color: var(--color-primary-brand);
+  
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.input-modern::placeholder {
+  color: var(--color-text-muted);
+  transition: all 0.3s ease;
+}
+
+.input-modern:focus::placeholder {
+  opacity: 0.6;
+  transform: translateY(-2px);
+}
+
+/* Utility classes for modern spacing */
+.space-y-modern > * + * {
+  margin-top: 1.5rem;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-background);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+
+input[type="date"]::-webkit-input-placeholder {
+  opacity: 0 !important;
+}
+
+input[type="date"]::-moz-placeholder {
+  opacity: 0 !important;
+}
+
+input[type="date"]::placeholder {
+  opacity: 0 !important;
+}
+
+/* Alternative approach */
+input[type="date"]::-webkit-datetime-edit-text {
+  -webkit-appearance: none;
+  display: none;
+}
+
+input[type="date"]::-webkit-datetime-edit-month-field{
+  display: none;
+}
+
+input[type="date"]::-webkit-datetime-edit-day-field {
+  display: none;
+}
+
+input[type="date"]::-webkit-datetime-edit-year-field {
+  display: none;
 }
