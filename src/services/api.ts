@@ -1,15 +1,14 @@
 // src/services/api.ts
 import axios from 'axios';
 
-// Base URL for your backend API
-// ENSURE THIS IS CORRECT: It should point to the root of your API, usually ends with /api
-const API_URL = process.env.NEXT_PUBLIC_BACKEND_API_URL || 'http://localhost:3000';
+// Base URL for backend API
+const API_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_API_URL || 'http://localhost:3001';
 
-const API_BASE_URL = `${API_URL}/api`;
+//const API_BASE_URL = `${API_URL}/api`;
 
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 1000000, // 10 seconds timeout
+  timeout: 1000000, // 1000 seconds timeout
   headers: {
     'Content-Type': 'application/json',
   },
