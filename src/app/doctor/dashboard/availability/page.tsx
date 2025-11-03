@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAppSelector } from '@/lib/hooks';
 import api from '@/services/api';
+import { ChevronUp, ChevronDown } from 'lucide-react';
 
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -71,7 +72,10 @@ export default function UnifiedAvailabilityPage() {
 
     const [isPainting, setIsPainting] = useState(false);
     const [paintValue, setPaintValue] = useState<boolean>(false);
-    const gridScrollRef = useRef<HTMLDivElement>(null);
+    const [timeOffset, setTimeOffset] = useState(7); // Start at 7 AM
+    
+    const VISIBLE_HOURS = 8; // Show 8 hours at a time
+    const CELL_HEIGHT = 24; // Height per 15-min slot in pixels
 
     // --- Data Fetching ---
     useEffect(() => {
@@ -115,14 +119,6 @@ export default function UnifiedAvailabilityPage() {
             });
         }
         setCalendarGrid(newGrid);
-        
-        // Scroll to 7 AM
-        setTimeout(() => {
-             if (gridScrollRef.current) {
-                gridScrollRef.current.scrollTop = 7 * 4 * 20; // 7am * 4 quarters * 20px height
-            }
-        }, 100);
-
     }, [selectedClinic, allAvailability]);
 
 
@@ -133,24 +129,69 @@ export default function UnifiedAvailabilityPage() {
         setSelectedClinic(clinic || null);
     };
 
-    const handleMouseDown = (rowIndex: number, colIndex: number) => {
+    const handleMouseDown = (rowIndex: number, colIndex: number, e: React.MouseEvent) => {
+        e.preventDefault();
         setIsPainting(true);
-        const newPaintValue = !calendarGrid[rowIndex][colIndex];
+        const actualRow = (timeOffset * 4) + rowIndex;
+        const newPaintValue = !calendarGrid[actualRow][colIndex];
         setPaintValue(newPaintValue);
         const newGrid = calendarGrid.map(row => [...row]);
-        newGrid[rowIndex][colIndex] = newPaintValue;
+        newGrid[actualRow][colIndex] = newPaintValue;
         setCalendarGrid(newGrid);
     };
 
     const handleMouseEnter = (rowIndex: number, colIndex: number) => {
         if (isPainting) {
+            const actualRow = (timeOffset * 4) + rowIndex;
             const newGrid = calendarGrid.map(row => [...row]);
-            newGrid[rowIndex][colIndex] = paintValue;
+            newGrid[actualRow][colIndex] = paintValue;
             setCalendarGrid(newGrid);
         }
     };
     
     const handleMouseUp = () => setIsPainting(false);
+    
+    const handleTouchStart = (rowIndex: number, colIndex: number, e: React.TouchEvent) => {
+        e.preventDefault();
+        setIsPainting(true);
+        const actualRow = (timeOffset * 4) + rowIndex;
+        const newPaintValue = !calendarGrid[actualRow][colIndex];
+        setPaintValue(newPaintValue);
+        const newGrid = calendarGrid.map(row => [...row]);
+        newGrid[actualRow][colIndex] = newPaintValue;
+        setCalendarGrid(newGrid);
+    };
+
+    const handleTouchMove = (e: React.TouchEvent) => {
+        if (!isPainting) return;
+        e.preventDefault();
+        
+        const touch = e.touches[0];
+        const element = document.elementFromPoint(touch.clientX, touch.clientY);
+        
+        if (element && element.classList.contains('calendar-cell')) {
+            const rowIndex = parseInt(element.getAttribute('data-row') || '0');
+            const colIndex = parseInt(element.getAttribute('data-col') || '0');
+            const actualRow = (timeOffset * 4) + rowIndex;
+            const newGrid = calendarGrid.map(row => [...row]);
+            newGrid[actualRow][colIndex] = paintValue;
+            setCalendarGrid(newGrid);
+        }
+    };
+
+    const handleTouchEnd = () => setIsPainting(false);
+
+    // --- Time Navigation ---
+    const scrollUp = () => {
+        setTimeOffset(Math.max(0, timeOffset - 2));
+    };
+
+    const scrollDown = () => {
+        setTimeOffset(Math.min(24 - VISIBLE_HOURS, timeOffset + 2));
+    };
+
+    const canScrollUp = timeOffset > 0;
+    const canScrollDown = timeOffset < (24 - VISIBLE_HOURS);
     
     // --- Save Logic ---
     const handleSaveSchedule = async () => {
@@ -166,7 +207,7 @@ export default function UnifiedAvailabilityPage() {
             for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
                 let currentStart = -1;
                 for (let rowIndex = 0; rowIndex < calendarGrid.length + 1; rowIndex++) {
-                    const isAvailable = calendarGrid[rowIndex]?.[dayIndex] ?? false; // Handle end of grid
+                    const isAvailable = calendarGrid[rowIndex]?.[dayIndex] ?? false;
                     if (isAvailable && currentStart === -1) {
                         currentStart = rowIndex * 15;
                     } else if (!isAvailable && currentStart !== -1) {
@@ -181,10 +222,8 @@ export default function UnifiedAvailabilityPage() {
                 }
             }
 
-            // API calls to delete old and add new availability
             const existingSlots = allAvailability.filter(a => a.clinic_doctor_id === selectedClinic.clinic_doctor_id);
             
-            // This is a simplified approach. A more robust backend would handle this in a single transaction.
             for (const slot of existingSlots) {
                 await api.delete(`/availability/availability/${slot.id}`, {
                     params: {
@@ -200,7 +239,6 @@ export default function UnifiedAvailabilityPage() {
                 });
             }
 
-            // Refresh data from server
             const { data } = await api.get('/doctor/unified-availability');
             setAllAvailability(data.availability);
             
@@ -219,14 +257,19 @@ export default function UnifiedAvailabilityPage() {
         return <DoctorDashboardLayout><LoadingSpinner /></DoctorDashboardLayout>;
     }
 
+    const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const visibleSlots = VISIBLE_HOURS * 4;
+
     return (
         <DoctorDashboardLayout headerText="My Availability">
             <div className="p-6 md:p-8 font-inter">
+                
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
                     <div>
                         <h1 className="text-3xl font-bold text-gray-800">Manage Your Schedule</h1>
                         <p className="text-gray-600 mt-1">Select a clinic to view or edit your weekly schedule and date-specific exceptions.</p>
                     </div>
+                    
                     {selectedClinic && activeTab === 'schedule' && (
                         <Button variant="primary" size="md" disabled={isSaving} onClick={handleSaveSchedule} shine>
                             {isSaving ? 'Saving...' : `Save for ${selectedClinic.clinic_name}`}
@@ -236,7 +279,6 @@ export default function UnifiedAvailabilityPage() {
 
                 {successMessage && <div className="bg-green-100 text-green-700 p-3 rounded-md text-sm mb-4">{successMessage}</div>}
                 {error && <div className="bg-red-100 text-red-700 p-3 rounded-md text-sm mb-4">{error}</div>}
-
                 <div className="mb-6">
                     <label htmlFor="clinic-select" className="block text-sm font-medium text-gray-700 mb-2">Select a Clinic:</label>
                     <select
@@ -250,6 +292,7 @@ export default function UnifiedAvailabilityPage() {
                         ))}
                     </select>
                 </div>
+               
 
                 <div className="border-b border-gray-200 mb-6">
                     <nav className="-mb-px flex space-x-6">
@@ -265,10 +308,21 @@ export default function UnifiedAvailabilityPage() {
                 {activeTab === 'schedule' && (
                     <WeeklyScheduleGrid 
                         calendarGrid={calendarGrid}
-                        gridScrollRef={gridScrollRef}
+                        timeOffset={timeOffset}
+                        visibleSlots={visibleSlots}
+                        VISIBLE_HOURS={VISIBLE_HOURS}
+                        CELL_HEIGHT={CELL_HEIGHT}
+                        weekdays={weekdays}
+                        canScrollUp={canScrollUp}
+                        canScrollDown={canScrollDown}
+                        scrollUp={scrollUp}
+                        scrollDown={scrollDown}
                         handleMouseDown={handleMouseDown}
                         handleMouseEnter={handleMouseEnter}
                         handleMouseUp={handleMouseUp}
+                        handleTouchStart={handleTouchStart}
+                        handleTouchMove={handleTouchMove}
+                        handleTouchEnd={handleTouchEnd}
                     />
                 )}
 
@@ -279,8 +333,6 @@ export default function UnifiedAvailabilityPage() {
                         onUpdate={(updatedExceptions) => setAllExceptions(prev => [...prev.filter(ex => ex.clinic_doctor_id !== selectedClinic.clinic_doctor_id), ...updatedExceptions])}
                    />
                 )}
-
-
             </div>
         </DoctorDashboardLayout>
     );
@@ -288,41 +340,135 @@ export default function UnifiedAvailabilityPage() {
 
 // --- Sub-Components ---
 
-const WeeklyScheduleGrid = ({ calendarGrid, gridScrollRef, handleMouseDown, handleMouseEnter, handleMouseUp }: any) => {
-    const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+interface WeeklyScheduleGridProps {
+    calendarGrid: boolean[][];
+    timeOffset: number;
+    visibleSlots: number;
+    VISIBLE_HOURS: number;
+    CELL_HEIGHT: number;
+    weekdays: string[];
+    canScrollUp: boolean;
+    canScrollDown: boolean;
+    scrollUp: () => void;
+    scrollDown: () => void;
+    handleMouseDown: (rowIndex: number, colIndex: number, e: React.MouseEvent) => void;
+    handleMouseEnter: (rowIndex: number, colIndex: number) => void;
+    handleMouseUp: () => void;
+    handleTouchStart: (rowIndex: number, colIndex: number, e: React.TouchEvent) => void;
+    handleTouchMove: (e: React.TouchEvent) => void;
+    handleTouchEnd: () => void;
+}
+
+const WeeklyScheduleGrid = ({ 
+    calendarGrid, 
+    timeOffset, 
+    visibleSlots, 
+    VISIBLE_HOURS, 
+    CELL_HEIGHT, 
+    weekdays,
+    canScrollUp,
+    canScrollDown,
+    scrollUp,
+    scrollDown,
+    handleMouseDown, 
+    handleMouseEnter, 
+    handleMouseUp,
+    handleTouchStart,
+    handleTouchMove,
+    handleTouchEnd
+}: WeeklyScheduleGridProps) => {
     return (
         <Card padding="lg">
+            {/* Navigation Buttons */}
+            <div className="flex justify-center items-center gap-4 mb-4 pb-4 border-b border-gray-200">
+                <button
+                    onClick={scrollUp}
+                    disabled={!canScrollUp}
+                    className="p-2 rounded-lg bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                    aria-label="Scroll to earlier times"
+                >
+                    <ChevronUp className="w-5 h-5" />
+                </button>
+                <span className="text-sm font-medium text-gray-600">
+                    Showing {formatHour(timeOffset)} - {formatHour(timeOffset + VISIBLE_HOURS)}
+                </span>
+                <button
+                    onClick={scrollDown}
+                    disabled={!canScrollDown}
+                    className="p-2 rounded-lg bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                    aria-label="Scroll to later times"
+                >
+                    <ChevronDown className="w-5 h-5" />
+                </button>
+            </div>
+
             <div className="border border-gray-200 rounded-lg overflow-hidden">
                 <div className="grid grid-cols-8 gap-0 bg-gray-50 border-b border-gray-200">
                     <div className="h-12 flex items-center justify-center font-semibold text-gray-700 border-r">Time</div>
                     {weekdays.map(day => <div key={day} className="h-12 flex items-center justify-center font-semibold text-sm text-gray-700 border-r last:border-r-0">{day}</div>)}
                 </div>
-                <div ref={gridScrollRef} className="h-[500px] overflow-y-auto" onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}>
+                <div 
+                    className="select-none"
+                    onMouseUp={handleMouseUp}
+                    onMouseLeave={handleMouseUp}
+                    onTouchEnd={handleTouchEnd}
+                    onTouchMove={handleTouchMove}
+                >
                     <div className="grid grid-cols-8 gap-0">
                         <div className="bg-gray-50 border-r">
-                            {Array.from({ length: 24 }).map((_, hour) => (
-                                <div key={hour} className="h-20 flex items-center justify-end pr-3 text-sm text-gray-600 border-b border-gray-100">
-                                    <span className="font-medium">{formatHour(hour)}</span>
-                                </div>
-                            ))}
+                            {Array.from({ length: VISIBLE_HOURS }).map((_, hourIndex) => {
+                                const actualHour = timeOffset + hourIndex;
+                                return (
+                                    <div 
+                                        key={hourIndex} 
+                                        className="flex items-center justify-end pr-3 text-xs font-medium text-gray-600 border-b border-gray-200"
+                                        style={{ height: `${CELL_HEIGHT * 4}px` }}
+                                    >
+                                        {formatHour(actualHour)}
+                                    </div>
+                                );
+                            })}
                         </div>
                         {weekdays.map((day, colIndex) => (
                             <div key={colIndex} className="border-r last:border-r-0">
-                                {Array.from({ length: 96 }).map((_, rowIndex) => (
-                                    <div
-                                        key={rowIndex}
-                                        className={`h-[20px] w-full cursor-pointer transition-colors duration-100 ease-in-out border-b border-gray-100
-                                            ${calendarGrid[rowIndex]?.[colIndex] ? 'bg-blue-500 hover:bg-blue-600' : 'bg-white hover:bg-blue-100'}
-                                            ${rowIndex % 4 === 0 ? 'border-t border-gray-200' : ''}`}
-                                        onMouseDown={() => handleMouseDown(rowIndex, colIndex)}
-                                        onMouseEnter={() => handleMouseEnter(rowIndex, colIndex)}
-                                    ></div>
-                                ))}
+                                {Array.from({ length: visibleSlots }).map((_, slotIndex) => {
+                                    const actualRow = (timeOffset * 4) + slotIndex;
+                                    const isAvailable = calendarGrid[actualRow]?.[colIndex];
+                                    const isHourStart = slotIndex % 4 === 0;
+                                    
+                                    return (
+                                        <div
+                                            key={slotIndex}
+                                            data-row={slotIndex}
+                                            data-col={colIndex}
+                                            className={`calendar-cell w-full cursor-pointer transition-colors border-b border-gray-100
+                                                ${isAvailable ? 'bg-blue-500 hover:bg-blue-600' : 'bg-white hover:bg-blue-100'}
+                                                ${isHourStart ? 'border-t-2 border-gray-200' : ''}`}
+                                            style={{ height: `${CELL_HEIGHT}px` }}
+                                            onMouseDown={(e) => handleMouseDown(slotIndex, colIndex, e)}
+                                            onMouseEnter={() => handleMouseEnter(slotIndex, colIndex)}
+                                            onTouchStart={(e) => handleTouchStart(slotIndex, colIndex, e)}
+                                        />
+                                    );
+                                })}
                             </div>
                         ))}
                     </div>
                 </div>
             </div>
+
+            {/* Legend */}
+            <div className="mt-4 flex items-center justify-center gap-6 text-sm">
+                <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 bg-blue-500 rounded"></div>
+                    <span className="text-gray-600">Available</span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 bg-white border border-gray-300 rounded"></div>
+                    <span className="text-gray-600">Unavailable</span>
+                </div>
+            </div>
+            
         </Card>
     );
 };
@@ -349,10 +495,8 @@ const AvailabilityExceptions = ({ clinic, exceptions, onUpdate }: { clinic: Clin
                 is_available: isAvailable,
                 note
             });
-            // Refresh exceptions
             const { data } = await api.get('/availability/exception', { params: { clinic_doctor_id: clinic.clinic_doctor_id, clinic_id: clinic.clinic_id } });
             onUpdate(data);
-            // Reset form
             setDate(''); setStartTime(''); setEndTime(''); setIsAvailable(false); setNote('');
         } catch (err) {
             console.error('Failed to add exception:', err);

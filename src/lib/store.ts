@@ -8,13 +8,14 @@ import {
   PURGE,
   REGISTER,
 } from 'redux-persist';
-import authReducer from '@/lib/features/auth/authSlice'; // Import original reducer
+import authReducer from '@/lib/features/auth/authSlice'; 
+import uiReducer from '@/lib/features/ui/uiSlice';
 
 export const makeStore = () => {
   return configureStore({
     reducer: {
-      auth: authReducer, // Direct reducer, not yet persisted
-      // Add other reducers here if you have them
+      auth: authReducer, 
+      ui: uiReducer,
     },
     middleware: (getDefaultMiddleware) =>
       getDefaultMiddleware({

@@ -5,9 +5,10 @@ import React, { useEffect, useState } from 'react';
 import { Provider } from 'react-redux';
 import { PersistGate } from 'redux-persist/integration/react';
 import { persistStore, persistReducer } from 'redux-persist';
-import storage from 'redux-persist/lib/storage'; // defaults to localStorage for web
+import storage from 'redux-persist/lib/storage';
 import { makeStore } from '@/lib/store';
 import authReducer from '@/lib/features/auth/authSlice';
+import uiReducer from '@/lib/features/ui/uiSlice';
 import {
   FLUSH,
   REHYDRATE,
@@ -19,21 +20,22 @@ import {
 
 // Configure persistence for the auth slice
 const persistConfig = {
-  key: 'authFettlemed', // A unique key for your persisted state in localStorage
+  key: 'authFettlemed',
   version: 1,
   storage,
   whitelist: ['auth'], // Only persist the 'auth' slice
 };
 
+// FIXED: Include BOTH auth and ui reducers
 const rootReducer = (state: any, action: any) => {
   return {
     auth: authReducer(state ? state.auth : undefined, action),
+    ui: uiReducer(state ? state.ui : undefined, action), // Add ui reducer here
   };
 };
 
 const persistedAuthRootReducer = persistReducer(persistConfig, rootReducer);
 
-// Global singletons for the client-side store and persistor
 let storeSingleton: ReturnType<typeof makeStore> | undefined;
 let persistorSingleton: ReturnType<typeof persistStore> | undefined;
 
@@ -43,18 +45,17 @@ function getClientStore() {
     const store = makeStore();
     store.replaceReducer(persistedAuthRootReducer as any);
     storeSingleton = store;
-    persistorSingleton = persistStore(storeSingleton); // Create persistor here as well
+    persistorSingleton = persistStore(storeSingleton);
   }
   return storeSingleton;
 }
 
 function getClientPersistor() {
-    if (!persistorSingleton) {
-        getClientStore(); // This will ensure storeSingleton and persistorSingleton are initialized
-    }
-    return persistorSingleton!;
+  if (!persistorSingleton) {
+    getClientStore();
+  }
+  return persistorSingleton!;
 }
-
 
 export default function ReduxProvider({
   children,
@@ -70,28 +71,25 @@ export default function ReduxProvider({
     console.log('ReduxProvider: useEffect triggered. Store:', store ? 'initialized' : 'null', 'Persistor:', persistor ? 'initialized' : 'null');
     
     if (persistor) {
-      // Subscribe to the persistor's state to detect rehydration completion
       const unsubscribe = persistor.subscribe(() => {
         const { _persist } = store.getState() as any;
         console.log('ReduxProvider: Persistor subscription callback. _persist.rehydrated:', _persist?.rehydrated);
         if (_persist && _persist.rehydrated) {
           setIsStoreReady(true);
           console.log('ReduxProvider: Store rehydrated successfully! setIsStoreReady(true).');
-          unsubscribe(); // Unsubscribe after successful rehydration
+          unsubscribe();
         }
       });
 
-      // Also check immediately if already rehydrated (e.g., on fast refresh in dev mode)
       const { _persist } = store.getState() as any;
       if (_persist && _persist.rehydrated) {
-          setIsStoreReady(true);
-          console.log('ReduxProvider: Store already rehydrated on mount. setIsStoreReady(true).');
-          unsubscribe(); // Unsubscribe immediately if already rehydrated
+        setIsStoreReady(true);
+        console.log('ReduxProvider: Store already rehydrated on mount. setIsStoreReady(true).');
+        unsubscribe();
       } else {
         console.log('ReduxProvider: Store not yet rehydrated on mount. Waiting for subscription...');
       }
 
-      // Cleanup on component unmount
       return () => {
         console.log('ReduxProvider: useEffect cleanup. Unsubscribing from persistor.');
         unsubscribe();
@@ -99,10 +97,8 @@ export default function ReduxProvider({
     } else {
       console.error('ReduxProvider: Persistor is null or undefined. Redux persistence might be failing.');
     }
-  }, [store, persistor]); // Depend on store and persistor instances
+  }, [store, persistor]);
 
-
-  // Render a loading state until the Redux store is fully initialized and rehydrated
   if (!isStoreReady) {
     console.log('ReduxProvider: Rendering loading state because !isStoreReady.');
     return (

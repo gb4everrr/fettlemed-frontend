@@ -2,7 +2,6 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-// These imports are placeholders for your actual project components and services.
 // @ts-ignore
 import { useAppSelector } from '@/lib/hooks';
 // @ts-ignore
@@ -15,7 +14,7 @@ import Button from '@/components/ui/Button';
 import ClinicDashboardLayout from '@/components/ClinicDashboardLayout';
 // @ts-ignore
 import { useRouter } from 'next/navigation';
-import { Plus, Calendar, Edit, Clock, Filter, Move } from 'lucide-react';
+import { Plus, Calendar, Edit, Clock, Filter, Move, RefreshCw } from 'lucide-react';
 // @ts-ignore
 import Input from '@/components/ui/Input';
 // @ts-ignore
@@ -27,8 +26,8 @@ interface Appointment {
   patient_profile_id: number;
   clinic_doctor_id: number;
   slot_id: number;
-  datetime_start_str: string; // UTC string from backend
-  datetime_end_str: string;   // UTC string from backend
+  datetime_start_str: string;
+  datetime_end_str: string;
   status: number;
   notes: string | null;
   patient?: { first_name: string; last_name: string; };
@@ -47,19 +46,16 @@ interface ClinicPatient {
   last_name: string;
 }
 
-// FIXED: Proper datetime formatting function
 const formatDateTime = (utcIsoString: string) => {
   if (!utcIsoString) return '';
   
   try {
-    // The backend now sends proper ISO strings, so we can parse directly
     const date = new Date(utcIsoString);
     
     if (isNaN(date.getTime())) {
-      return utcIsoString; // Fallback to original string if parsing fails
+      return utcIsoString;
     }
     
-    // This will automatically convert to user's local timezone
     return date.toLocaleString(undefined, {
       weekday: 'short',
       month: 'short',
@@ -75,7 +71,6 @@ const formatDateTime = (utcIsoString: string) => {
   }
 };
 
-// Alternative: Format to specific timezone (if you want clinic timezone instead of user's local)
 const formatDateTimeToTimezone = (utcIsoString: string, timeZone: string = 'Asia/Kolkata') => {
   if (!utcIsoString) return '';
   
@@ -86,7 +81,6 @@ const formatDateTimeToTimezone = (utcIsoString: string, timeZone: string = 'Asia
       return utcIsoString;
     }
     
-    // Format to specific timezone
     return date.toLocaleString(undefined, {
       timeZone: timeZone,
       weekday: 'short',
@@ -103,13 +97,37 @@ const formatDateTimeToTimezone = (utcIsoString: string, timeZone: string = 'Asia
   }
 };
 
-const getStatusTag = (status: number) => {
-  switch (status) {
-    case 0: return { text: 'Upcoming', color: 'bg-blue-100 text-blue-800' };
-    case 1: return { text: 'Confirmed', color: 'bg-green-100 text-green-800' };
-    case 2: return { text: 'Cancelled', color: 'bg-red-100 text-red-800' };
-    case 3: return { text: 'Completed', color: 'bg-gray-100 text-gray-800' };
-    default: return { text: 'Unknown', color: 'bg-yellow-100 text-yellow-800' };
+// Check if appointment was rescheduled
+const isRescheduled = (appointment: Appointment) => {
+  return appointment.notes?.includes('[Rescheduled from:') || false;
+};
+
+// Extract original time from rescheduled note
+const getRescheduledFromTime = (appointment: Appointment) => {
+  if (!appointment.notes) return null;
+  const match = appointment.notes.match(/\[Rescheduled from: (.*?)\]/);
+  return match ? match[1] : null;
+};
+
+const getActualStatus = (appointment: Appointment) => {
+  const now = new Date();
+  const startTime = new Date(appointment.datetime_start_str);
+  const endTime = new Date(appointment.datetime_end_str);
+
+  if (appointment.status === 2) {
+    return { text: 'Cancelled', color: 'bg-red-100 text-red-800', key: 'cancelled' };
+  }
+
+  if (appointment.status === 3) {
+    return { text: 'Completed', color: 'bg-gray-100 text-gray-800', key: 'completed' };
+  }
+
+  if (now < startTime) {
+    return { text: 'Upcoming', color: 'bg-blue-100 text-blue-800', key: 'upcoming' };
+  } else if (now >= startTime && now <= endTime) {
+    return { text: 'In Progress', color: 'bg-yellow-100 text-yellow-800', key: 'inProgress' };
+  } else {
+    return { text: 'Completed', color: 'bg-gray-100 text-gray-800', key: 'completed' };
   }
 };
 
@@ -121,10 +139,7 @@ export default function AppointmentsDashboardPage() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [doctors, setDoctors] = useState<ClinicDoctor[]>([]);
   const [patients, setPatients] = useState<ClinicPatient[]>([]);
-  
-  // Add clinic timezone state if you want to display in clinic's timezone
   const [clinicTimezone, setClinicTimezone] = useState<string>('Asia/Kolkata');
-
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
@@ -134,6 +149,17 @@ export default function AppointmentsDashboardPage() {
     startDate: '',
     endDate: '',
   });
+
+  const [activeTab, setActiveTab] = useState<'active' | 'completed' | 'all'>('active');
+  const [statusFilters, setStatusFilters] = useState({
+    upcoming: true,
+    inProgress: true,
+    completed: true,
+    cancelled: true,
+  });
+  const [showFilters, setShowFilters] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 50;
 
   useEffect(() => {
     if (!user || user.role !== 'clinic_admin' || !clinicId) {
@@ -149,7 +175,6 @@ export default function AppointmentsDashboardPage() {
           params: { ...filters, clinic_id: clinicId },
         });
 
-        // FIXED: Sort using proper Date objects from ISO strings
         const sortedAppointments = response.data.sort((a: Appointment, b: Appointment) => {
           return new Date(a.datetime_start_str).getTime() - new Date(b.datetime_start_str).getTime();
         });
@@ -181,7 +206,6 @@ export default function AppointmentsDashboardPage() {
       }
     };
 
-    // Optional: Fetch clinic timezone
     const fetchClinicDetails = async () => {
       try {
         const response = await api.get(`/clinic/${clinicId}`);
@@ -190,7 +214,6 @@ export default function AppointmentsDashboardPage() {
         }
       } catch (err) {
         console.error('Failed to fetch clinic details:', err);
-        // Keep default timezone
       }
     };
 
@@ -201,10 +224,53 @@ export default function AppointmentsDashboardPage() {
     
   }, [user, router, clinicId, filters]);
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeTab, statusFilters]);
+
   const handleFilterChange = (e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) => {
     const { name, value } = e.target;
     setFilters(prev => ({ ...prev, [name]: value }));
   };
+
+  const toggleStatusFilter = (status: keyof typeof statusFilters) => {
+    setStatusFilters(prev => ({ ...prev, [status]: !prev[status] }));
+  };
+
+  const getFilteredAppointments = () => {
+    const now = new Date();
+    
+    let filtered = appointments;
+
+    if (activeTab === 'active') {
+      filtered = appointments.filter(apt => {
+        const endTime = new Date(apt.datetime_end_str);
+        // Exclude if manually cancelled (status 2) OR manually completed (status 3)
+        // Also exclude if appointment end time has passed (auto-completed)
+        return endTime >= now && apt.status !== 2 && apt.status !== 3;
+      });
+    } else if (activeTab === 'completed') {
+      filtered = appointments.filter(apt => {
+        const endTime = new Date(apt.datetime_end_str);
+        // Include if: past end time OR manually cancelled OR manually completed
+        return endTime < now || apt.status === 2 || apt.status === 3;
+      });
+    }
+
+    filtered = filtered.filter(apt => {
+      const status = getActualStatus(apt);
+      return statusFilters[status.key as keyof typeof statusFilters];
+    });
+
+    return filtered;
+  };
+
+  const filteredAppointments = getFilteredAppointments();
+
+  const totalPages = Math.ceil(filteredAppointments.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedAppointments = filteredAppointments.slice(startIndex, endIndex);
 
   if (!user || isLoading) {
     return (
@@ -242,112 +308,273 @@ export default function AppointmentsDashboardPage() {
           </Link>
         </div>
 
-        <Card className="mb-6 p-6 shadow-md">
-          <h2 className="text-xl font-semibold text-gray-700 mb-4 flex items-center">
-            <Filter className="h-5 w-5 mr-2" /> Filters
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div>
-              <select
-                id="doctor-filter"
-                name="clinic_doctor_id"
-                value={filters.clinic_doctor_id}
-                onChange={handleFilterChange}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2"
+        <Card className="mb-6 shadow-md">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between p-4 gap-4 border-b border-gray-200">
+            <nav className="flex space-x-6">
+              <button
+                onClick={() => setActiveTab('active')}
+                className={`whitespace-nowrap pb-2 border-b-2 font-medium text-sm transition-colors ${
+                  activeTab === 'active'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
               >
-                <option value="">All Doctors</option>
-                {doctors.map(doctor => (
-                  <option key={doctor.id} value={doctor.id}>
-                    {doctor.first_name} {doctor.last_name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <select
-                id="patient-filter"
-                name="patient_profile_id"
-                value={filters.patient_profile_id}
-                onChange={handleFilterChange}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2"
+                Active
+              </button>
+              <button
+                onClick={() => setActiveTab('completed')}
+                className={`whitespace-nowrap pb-2 border-b-2 font-medium text-sm transition-colors ${
+                  activeTab === 'completed'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
               >
-                <option value="">All Patients</option>
-                {patients.map(patient => (
-                  <option key={patient.id} value={patient.id}>
-                    {patient.first_name} {patient.last_name}
-                  </option>
-                ))}
-              </select>
+                Completed
+              </button>
+              <button
+                onClick={() => setActiveTab('all')}
+                className={`whitespace-nowrap pb-2 border-b-2 font-medium text-sm transition-colors ${
+                  activeTab === 'all'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                All
+              </button>
+            </nav>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => toggleStatusFilter('upcoming')}
+                className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
+                  statusFilters.upcoming
+                    ? 'bg-blue-100 text-blue-800 border-2 border-blue-500'
+                    : 'bg-gray-100 text-gray-400 border-2 border-gray-300'
+                }`}
+              >
+                Upcoming
+              </button>
+              <button
+                onClick={() => toggleStatusFilter('inProgress')}
+                className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
+                  statusFilters.inProgress
+                    ? 'bg-yellow-100 text-yellow-800 border-2 border-yellow-500'
+                    : 'bg-gray-100 text-gray-400 border-2 border-gray-300'
+                }`}
+              >
+                In Progress
+              </button>
+              <button
+                onClick={() => toggleStatusFilter('completed')}
+                className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
+                  statusFilters.completed
+                    ? 'bg-gray-100 text-gray-800 border-2 border-gray-500'
+                    : 'bg-gray-100 text-gray-400 border-2 border-gray-300'
+                }`}
+              >
+                Completed
+              </button>
+              <button
+                onClick={() => toggleStatusFilter('cancelled')}
+                className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
+                  statusFilters.cancelled
+                    ? 'bg-red-100 text-red-800 border-2 border-red-500'
+                    : 'bg-gray-100 text-gray-400 border-2 border-gray-300'
+                }`}
+              >
+                Cancelled
+              </button>
             </div>
-            <div>
-              <Input id="start-date-filter" name="startDate" type="date" value={filters.startDate} onChange={handleFilterChange} />
-            </div>
-            <div>
-              <Input id="end-date-filter" name="endDate" type="date" value={filters.endDate} onChange={handleFilterChange} />
-            </div>
+          </div>
+
+          <div className="p-4">
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className="flex items-center text-sm text-gray-600 hover:text-gray-800 font-medium"
+            >
+              <Filter className="h-4 w-4 mr-2" />
+              {showFilters ? 'Hide' : 'Show'} Additional Filters
+            </button>
+            
+            {showFilters && (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Doctor</label>
+                  <select
+                    id="doctor-filter"
+                    name="clinic_doctor_id"
+                    value={filters.clinic_doctor_id}
+                    onChange={handleFilterChange}
+                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 text-sm"
+                  >
+                    <option value="">All Doctors</option>
+                    {doctors.map(doctor => (
+                      <option key={doctor.id} value={doctor.id}>
+                        {doctor.first_name} {doctor.last_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Patient</label>
+                  <select
+                    id="patient-filter"
+                    name="patient_profile_id"
+                    value={filters.patient_profile_id}
+                    onChange={handleFilterChange}
+                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 text-sm"
+                  >
+                    <option value="">All Patients</option>
+                    {patients.map(patient => (
+                      <option key={patient.id} value={patient.id}>
+                        {patient.first_name} {patient.last_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Start Date</label>
+                  <Input id="start-date-filter" name="startDate" type="date" value={filters.startDate} onChange={handleFilterChange} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">End Date</label>
+                  <Input id="end-date-filter" name="endDate" type="date" value={filters.endDate} onChange={handleFilterChange} />
+                </div>
+              </div>
+            )}
           </div>
         </Card>
 
         <Card padding="lg" className="shadow-lg">
           <h2 className="text-2xl font-bold mb-4 flex items-center">
             <Clock className="h-6 w-6 mr-2 text-gray-600" />
-            All Appointments
+            {activeTab === 'active' ? 'Active Appointments' : activeTab === 'completed' ? 'Completed Appointments' : 'All Appointments'}
+            <span className="ml-2 text-sm font-normal text-gray-500">
+              ({filteredAppointments.length} total)
+            </span>
           </h2>
-          {appointments.length === 0 ? (
+          {paginatedAppointments.length === 0 ? (
             <div className="text-center py-8">
               <Calendar className="h-16 w-16 mx-auto text-gray-300 mb-4" />
               <p className="text-gray-500">No appointments found.</p>
               <p className="text-sm text-gray-400">Try adjusting your filters or booking a new appointment.</p>
             </div>
           ) : (
-            <ul className="space-y-4">
-              {appointments.map((appointment) => {
-                const statusTag = getStatusTag(appointment.status);
-                return (
-                  <li key={appointment.id} className="p-5 bg-white rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${statusTag.color}`}>
-                          {statusTag.text}
-                        </span>
-                        <div className="mt-2">
-                          <h3 className="text-lg font-bold text-gray-800">Appointment Time</h3>
-                          <p className="text-sm text-gray-600">
-                            {/* Use clinic timezone or user's local timezone */}
-                            {formatDateTimeToTimezone(appointment.datetime_start_str, clinicTimezone)}
-                            <span className="text-xs text-gray-400 ml-2">
-                              ({clinicTimezone})
+            <>
+              <ul className="space-y-4">
+                {paginatedAppointments.map((appointment) => {
+                  const statusTag = getActualStatus(appointment);
+                  const rescheduled = isRescheduled(appointment);
+                  const originalTime = getRescheduledFromTime(appointment);
+                  
+                  return (
+                    <li 
+                      key={appointment.id} 
+                      className="p-5 bg-white rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow"
+                    >
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${statusTag.color}`}>
+                              {statusTag.text}
                             </span>
-                          </p>
-                          {/* Optional: Show in user's local timezone too */}
-                          <p className="text-xs text-gray-400">
-                            Local: {formatDateTime(appointment.datetime_start_str)}
-                          </p>
+                            {rescheduled && (
+                              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-300">
+                                <RefreshCw className="h-3 w-3 mr-1" />
+                                Rescheduled
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-2">
+                            <h3 className="text-lg font-bold text-gray-800">Appointment Time</h3>
+                            <p className="text-sm text-gray-600">
+                              {formatDateTimeToTimezone(appointment.datetime_start_str, clinicTimezone)}
+                              <span className="text-xs text-gray-400 ml-2">
+                                ({clinicTimezone})
+                              </span>
+                            </p>
+                            <p className="text-xs text-gray-400">
+                              Local: {formatDateTime(appointment.datetime_start_str)}
+                            </p>
+                            {rescheduled && originalTime && (
+                              <p className="text-xs text-amber-600 mt-1 flex items-center">
+                                <RefreshCw className="h-3 w-3 mr-1" />
+                                Originally scheduled: {originalTime}
+                              </p>
+                            )}
+                          </div>
+                          {appointment.patient && (
+                            <p className="text-sm text-gray-500 mt-2">
+                              <span className="font-semibold">Patient:</span> {appointment.patient.first_name} {appointment.patient.last_name}
+                            </p>
+                          )}
+                          {appointment.doctor && (
+                            <p className="text-sm text-gray-500">
+                              <span className="font-semibold">Doctor:</span> {appointment.doctor.first_name} {appointment.doctor.last_name}
+                            </p>
+                          )}
                         </div>
-                        {appointment.patient && (
-                          <p className="text-sm text-gray-500 mt-2">
-                            <span className="font-semibold">Patient:</span> {appointment.patient.first_name} {appointment.patient.last_name}
-                          </p>
-                        )}
-                        {appointment.doctor && (
-                          <p className="text-sm text-gray-500">
-                            <span className="font-semibold">Doctor:</span> {appointment.doctor.first_name} {appointment.doctor.last_name}
-                          </p>
-                        )}
+                        <div className="flex space-x-2">
+                          <Button variant="secondary" size="sm" className='flex items-center' onClick={() => router.push(`/clinic-admin/dashboard/appointments/${appointment.id}/edit`)} title="View Appointment">
+                            <Edit className="h-4 w-4 mr-2"/>
+                            View Appointment
+                          </Button>
+                          
+                        </div>
                       </div>
-                      <div className="flex space-x-2">
-                        <Button variant="ghost" size="sm" onClick={() => router.push(`/clinic-admin/dashboard/appointments/${appointment.id}/edit`)} title="Edit Appointment">
-                          <Edit className="h-4 w-4 text-blue-500" />
+                    </li>
+                  );
+                })}
+              </ul>
+
+              {totalPages > 1 && (
+                <div className="mt-6 flex items-center justify-between border-t border-gray-200 pt-4">
+                  <div className="text-sm text-gray-700">
+                    Showing {startIndex + 1} to {Math.min(endIndex, filteredAppointments.length)} of {filteredAppointments.length} results
+                  </div>
+                  <div className="flex space-x-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                      disabled={currentPage === 1}
+                    >
+                      Previous
+                    </Button>
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      let pageNum;
+                      if (totalPages <= 5) {
+                        pageNum = i + 1;
+                      } else if (currentPage <= 3) {
+                        pageNum = i + 1;
+                      } else if (currentPage >= totalPages - 2) {
+                        pageNum = totalPages - 4 + i;
+                      } else {
+                        pageNum = currentPage - 2 + i;
+                      }
+                      return (
+                        <Button
+                          key={pageNum}
+                          variant={currentPage === pageNum ? 'primary' : 'ghost'}
+                          size="sm"
+                          onClick={() => setCurrentPage(pageNum)}
+                        >
+                          {pageNum}
                         </Button>
-                        <Button variant="ghost" size="sm" onClick={() => console.log(`Reschedule appointment ${appointment.id}`)} title="Reschedule">
-                          <Move className="h-4 w-4 text-green-500" />
-                        </Button>
-                      </div>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
+                      );
+                    })}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                      disabled={currentPage === totalPages}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </Card>
       </div>

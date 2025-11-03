@@ -3,7 +3,7 @@ import React from 'react';
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   children: React.ReactNode;
-  variant?: 'primary' | 'secondary' | 'outline' | 'ghost';
+  variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'sidebar';
   size?: 'sm' | 'md' | 'lg';
   shine?: boolean;
 }
@@ -42,6 +42,12 @@ const Button: React.FC<ButtonProps> = ({
       bg-transparent text-[var(--color-text-secondary)]
       hover:bg-[var(--color-text-primary)]/5 hover:text-[var(--color-text-primary)]
       disabled:opacity-50 disabled:cursor-not-allowed
+    `,
+    sidebar: `
+       bg-transparent text-[var(--color-text-secondary)]
+      hover:bg-[var(--color-text-primary)]/5 hover:text-[var(--color-text-primary)]
+      disabled:opacity-50 disabled:cursor-not-allowed
+  py-2
     `
   };
 

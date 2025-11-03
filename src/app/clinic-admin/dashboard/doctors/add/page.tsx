@@ -10,7 +10,7 @@ import Card from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
 import ClinicDashboardLayout from '@/components/ClinicDashboardLayout';
-import { authRequest, authFailure } from '@/lib/features/auth/authSlice';
+import { authRequest, authFailure, authSuccess } from '@/lib/features/auth/authSlice';
 
 interface NewDoctorPayload {
   firstName: string;
@@ -86,100 +86,98 @@ export default function AddDoctorPage() {
     return null;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  
+  console.log('Form submitted, current state:', {
+    isSubmitting,
+    clinicId: formData.clinicId,
+    userRole: user?.role,
+    hasClinic: user?.clinics && user.clinics[0]?.id
+  });
+  
+  // Clear previous errors
+  setFormError(null);
+  
+  // Validate form
+  const validationError = validateForm();
+  if (validationError) {
+    setFormError(validationError);
+    return;
+  }
+
+  if (!user?.clinics || !user.clinics[0]?.id) {
+    setFormError('No clinic ID found. Please set up your clinic profile first.');
+    return;
+  }
+
+  setIsSubmitting(true);
+
+  try {
+    // Clean the payload - map frontend field names to backend expected names
+    const payload = {
+      clinic_id: Number(formData.clinicId),
+      first_name: formData.firstName.trim(),
+      last_name: formData.lastName.trim(),
+      email: formData.email.trim().toLowerCase(),
+      phone_number: formData.phoneNumber.trim(),
+      medical_reg_no: formData.medicalRegNo.trim(),
+      specialization: formData.specialization.trim(),
+      started_date: formData.startedDate,
+      address: formData.address.trim(),
+    };
     
-    console.log('Form submitted, current state:', {
-      isSubmitting,
-      isLoading,
-      clinicId: formData.clinicId,
-      userRole: user?.role,
-      hasClinic: user?.clinics && user.clinics[0]?.id
+    console.log('Submitting payload:', payload);
+    
+    const response = await api.post('/clinic-user/clinic-doctor', payload);
+    
+    console.log('Doctor added successfully:', response.data);
+    
+    // Show success message
+    alert('Doctor added successfully!');
+    
+    // Navigate back to doctors list
+    router.push('/clinic-admin/dashboard/doctors');
+    
+  } catch (err: any) {
+    console.error('Failed to add doctor:', err);
+    console.error('Full error object:', {
+      message: err.message,
+      status: err.response?.status,
+      statusText: err.response?.statusText,
+      data: err.response?.data,
+      headers: err.response?.headers,
+      request: err.request
     });
     
-    // Clear previous errors
-    setFormError(null);
+    let errorMessage = 'Failed to add doctor. Please try again.';
     
-    // Validate form
-    const validationError = validateForm();
-    if (validationError) {
-      setFormError(validationError);
+    if (err.response?.status === 400) {
+      errorMessage = err.response?.data?.message || 'Invalid data provided. Please check your inputs.';
+    } else if (err.response?.status === 401) {
+      errorMessage = 'Authentication failed. Please log in again.';
+      router.push('/auth/login');
       return;
+    } else if (err.response?.status === 403) {
+      errorMessage = 'You do not have permission to add doctors.';
+    } else if (err.response?.status === 409) {
+      errorMessage = 'A doctor with this email or registration number already exists.';
+    } else if (err.response?.status === 500) {
+      errorMessage = 'Server error. Please check the server logs for details.';
+    } else {
+      errorMessage = err.response?.data?.message || err.message || errorMessage;
     }
-
-    if (!user?.clinics || !user.clinics[0]?.id) {
-      setFormError('No clinic ID found. Please set up your clinic profile first.');
-      return;
+    
+    setFormError(errorMessage);
+    
+    // Only dispatch auth failure for actual auth issues
+    if (err.response?.status === 401) {
+      dispatch(authFailure(errorMessage));
     }
-
-    setIsSubmitting(true);
-    dispatch(authRequest());
-
-    try {
-      // Clean the payload - map frontend field names to backend expected names
-      const payload = {
-        clinic_id: Number(formData.clinicId),
-        first_name: formData.firstName.trim(),
-        last_name: formData.lastName.trim(),
-        email: formData.email.trim().toLowerCase(),
-        phone_number: formData.phoneNumber.trim(),
-        medical_reg_no: formData.medicalRegNo.trim(),
-        specialization: formData.specialization.trim(),
-        started_date: formData.startedDate,
-        address: formData.address.trim(), // Now using the address from form
-      };
-      
-      console.log('Submitting payload:', payload);
-      
-      const response = await api.post('/clinic-user/clinic-doctor', payload);
-      
-      console.log('Doctor added successfully:', response.data);
-      
-      // Show success message
-      alert('Doctor added successfully!');
-      
-      // Navigate back to doctors list
-      router.push('/clinic-admin/dashboard/doctors');
-      
-    } catch (err: any) {
-      console.error('Failed to add doctor:', err);
-      console.error('Full error object:', {
-        message: err.message,
-        status: err.response?.status,
-        statusText: err.response?.statusText,
-        data: err.response?.data,
-        headers: err.response?.headers,
-        request: err.request
-      });
-      
-      let errorMessage = 'Failed to add doctor. Please try again.';
-      
-      if (err.response?.status === 400) {
-        errorMessage = err.response?.data?.message || 'Invalid data provided. Please check your inputs.';
-      } else if (err.response?.status === 401) {
-        errorMessage = 'Authentication failed. Please log in again.';
-        router.push('/auth/login');
-        return;
-      } else if (err.response?.status === 403) {
-        errorMessage = 'You do not have permission to add doctors.';
-      } else if (err.response?.status === 409) {
-        errorMessage = 'A doctor with this email or registration number already exists.';
-      } else if (err.response?.status === 500) {
-        errorMessage = 'Server error. Please check the server logs for details.';
-      } else {
-        errorMessage = err.response?.data?.message || err.message || errorMessage;
-      }
-      
-      setFormError(errorMessage);
-      
-      // Only dispatch auth failure for actual auth issues
-      if (err.response?.status === 401) {
-        dispatch(authFailure(errorMessage));
-      }
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+  } finally {
+    setIsSubmitting(false);
+  }
+};
 
   // Show loading state while checking authentication
   if (!user) {
@@ -324,8 +322,8 @@ export default function AddDoctorPage() {
                 size="lg" 
                 shine 
                 className="w-full" 
-                disabled={isSubmitting || isLoading}
-                onClick={() => console.log('Button clicked, disabled state:', isSubmitting || isLoading)}
+                disabled={isSubmitting }
+                onClick={() => console.log('Button clicked, disabled state:', isSubmitting)}
               >
               
                 {isSubmitting ? 'Adding Doctor...' : 'Add Doctor'}
