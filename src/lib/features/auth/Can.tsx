@@ -1,48 +1,45 @@
 'use client';
 import { useSelector } from 'react-redux';
 import { ReactNode } from 'react';
-// Import your RootState type if you have one, otherwise use any
-// import { RootState } from '@/lib/store'; 
 
-
+// --- THE PERMISSION DICTIONARY ---
+// This strictly matches your backend 'config/roles.js'.
+// Using this type gives you IntelliSense everywhere in your app.
 export type Permission = 
-  // Owner Level
-  | 'delete_clinic'
-  | 'manage_subscription'
-  | 'view_audit_logs'
+  // Owner & Admin Level
   | 'manage_branches'
-  
-  // Admin Level
-  | 'manage_clinic_profile'
+  | 'manage_roles'
   | 'manage_staff'
+  | 'manage_clinic_profile'
   | 'manage_services'
-  | 'view_financials'
-  | 'manage_invoices'
-  | 'view_analytics_ops'
-  | 'view_analytics_doc'
-  | 'manage_vitals_library'
   | 'manage_templates'
+  | 'view_financials'
+  | 'view_analytics_ops'
+  | 'delete_patient'
+  | 'manage_vitals_library'
+  | 'view_clinic_details'
   
-  // Clinical Level (Doctors/Nurses)
+  // Doctor & Clinical Level
+  | 'view_analytics_doc'
+  | 'view_all_schedule'
+  | 'manage_appointments'
+  | 'view_own_schedule'
   | 'view_assigned_patients'
-  | 'manage_medical_records'
   | 'create_prescription'
   | 'view_prescription'
+  | 'manage_medical_records'
   | 'manage_availability'
-  | 'view_own_schedule'
-  | 'manage_vitals_entry'
   | 'view_patient_history'
   
-  // Operational Level (Reception)
+  // Operational Level (Reception/Nurse)
   | 'manage_patients'
-  | 'manage_appointments'
-  | 'view_all_schedule'
-  | 'process_payments'
-  | 'view_services';
+  | 'manage_invoices'
+  | 'view_services'
+  | 'manage_vitals_entry';
 
 interface CanProps {
   perform: Permission;
-  yes?: ReactNode;      // Render this if allowed
+  yes?: ReactNode;      // Render this if allowed (optional, can use children instead)
   no?: ReactNode;       // Render this if denied (optional fallback)
   children?: ReactNode; // Default render if allowed
 }
