@@ -24,11 +24,6 @@ api.interceptors.request.use(
       config.headers.Authorization = `Bearer ${token}`;
     }
     
-    console.log(`API Request: ${config.method?.toUpperCase()} ${config.url}`, {
-      headers: config.headers,
-      data: config.data
-    });
-    
     return config;
   },
   (error) => {
@@ -40,10 +35,6 @@ api.interceptors.request.use(
 // Response interceptor to handle errors
 api.interceptors.response.use(
   (response) => {
-    console.log(`API Response: ${response.config.method?.toUpperCase()} ${response.config.url}`, {
-      status: response.status,
-      data: response.data
-    });
     return response;
   },
   (error) => {
@@ -73,37 +64,36 @@ api.interceptors.response.use(
         return Promise.reject(new Error('Unauthorized - Please log in again'));
       }
       
-      // Handle forbidden errors
+      // --- UPDATED: Handle 403 Forbidden (Permission Denied) ---
       if (status === 403) {
         console.log('API: 403 Forbidden - Access denied');
-        return Promise.reject(new Error('Access denied'));
-      }
-      
-      // Handle server errors with more context
-      if (status >= 500) {
-        console.error('API: Server Error', {
-          status,
-          url: error.config?.url,
-          method: error.config?.method,
-          requestData: error.config?.data,
-          responseData: data
-        });
         
-        const errorMessage = data?.message || `Server error (${status}). Please try again.`;
+        const msg = data?.error || "You don't have permission to perform this action.";
+        
+        // Since you are not using hot-toast, we log it.
+        // You can replace this with your own alert/notification logic.
+        console.error("PERMISSION DENIED:", msg);
+        
+        // We reject the promise so the UI can still handle loading states
+        return Promise.reject(new Error(msg));
+      }
+      // ---------------------------------------------------------
+      
+      // Handle server errors
+      if (status >= 500) {
+        const errorMessage = data?.message || data?.error || `Server error (${status}). Please try again.`;
         return Promise.reject(new Error(errorMessage));
       }
       
       // Handle client errors (4xx)
       if (status >= 400 && status < 500) {
-        const errorMessage = data?.message || `Request failed (${status})`;
+        const errorMessage = data?.message || data?.error || `Request failed (${status})`;
         return Promise.reject(new Error(errorMessage));
       }
     } else if (error.code === 'ECONNABORTED') {
-      // Handle timeout
       const errorMessage = 'Request timeout. Please check your connection.';
       return Promise.reject(new Error(errorMessage));
     } else {
-      // Handle network errors
       const errorMessage = 'Network error. Please check your connection.';
       return Promise.reject(new Error(errorMessage));
     }

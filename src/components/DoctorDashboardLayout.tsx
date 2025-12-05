@@ -68,7 +68,7 @@ const DoctorDashboardLayout = ({ children, headerText }: { children: React.React
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
-      <nav className="fixed top-0 left-0 right-0 z-50 py-3 px-6 md:px-10 flex justify-between items-center glassmorphic-navbar">
+      <nav className="fixed top-0 left-0 right-0 z-50 py-3 px-6 md:px-10 flex justify-between items-center glassmorphic-navbar backdrop-blur-sm">
         <div className="flex items-center">
           <button 
             className="md:hidden p-2 rounded-md text-gray-700"

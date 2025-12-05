@@ -8,6 +8,12 @@ interface Clinic {
   address: string;
   email: string;
   phone: string;
+  timezone: string;
+  brandColor: string;
+  logoUrl: string;
+  role: string;          // <--- NEW: The user's role in this specific clinic
+  permissions: string[]; // <--- NEW: The calculated permissions list
+  parent_clinic_id?: number | null;
 }
 
 interface AuthState {
@@ -21,10 +27,14 @@ interface AuthState {
     lastName: string;
     phoneNumber: string;
     profileSetupComplete: boolean;
-    clinics?: Clinic[]; // CORRECTED: Now an array of Clinic objects
+    clinics?: Clinic[];
   } | null;
   token: string | null;
   error: string | null;
+  
+  // NEW STATE FIELDS FOR RBAC
+  activeClinicId: number | null;
+  activePermissions: string[];
 }
 
 const initialState: AuthState = {
@@ -33,6 +43,8 @@ const initialState: AuthState = {
   user: null,
   token: null,
   error: null,
+  activeClinicId: null,
+  activePermissions: [],
 };
 
 export const authSlice = createSlice({
@@ -49,6 +61,19 @@ export const authSlice = createSlice({
       state.user = action.payload.user;
       state.token = action.payload.token;
       state.error = null;
+
+      // --- NEW: AUTO-SELECT CLINIC CONTEXT ---
+      // If the user belongs to clinics, automatically select the first one as active
+      if (state.user?.clinics && state.user.clinics.length > 0) {
+        const defaultClinic = state.user.clinics[0];
+        state.activeClinicId = defaultClinic.id;
+        state.activePermissions = defaultClinic.permissions || [];
+      } else {
+        state.activeClinicId = null;
+        state.activePermissions = [];
+      }
+      // ---------------------------------------
+
       if (typeof window !== 'undefined') {
           localStorage.setItem('user', JSON.stringify(action.payload.user));
           localStorage.setItem('token', action.payload.token);
@@ -60,6 +85,11 @@ export const authSlice = createSlice({
       state.user = null;
       state.token = null;
       state.error = action.payload;
+      
+      // Clear permissions on failure
+      state.activeClinicId = null;
+      state.activePermissions = [];
+
       if (typeof window !== 'undefined') {
           localStorage.removeItem('token');
           localStorage.removeItem('user');
@@ -71,13 +101,55 @@ export const authSlice = createSlice({
       state.user = null;
       state.token = null;
       state.error = null;
+      
+      // Clear permissions on logout
+      state.activeClinicId = null;
+      state.activePermissions = [];
+
       if (typeof window !== 'undefined') {
           localStorage.clear();
+      }
+    },
+    
+    // --- NEW: ACTION TO SWITCH CLINIC CONTEXT ---
+    switchClinic: (state, action: PayloadAction<number>) => {
+      const clinicId = action.payload;
+      state.activeClinicId = clinicId;
+
+      // Find the clinic in the user's list to retrieve its specific permissions
+      const clinic = state.user?.clinics?.find((c) => c.id === clinicId);
+      
+      if (clinic) {
+        state.activePermissions = clinic.permissions || [];
+      } else {
+        state.activePermissions = []; // Safety fallback
+      }
+    },
+    // --------------------------------------------
+
+    updateClinicSettings: (state, action) => {
+      if (state.user && state.user.clinics) {
+        // Find the specific clinic in the user's list and update it
+        const index = state.user.clinics.findIndex((c) => c.id === action.payload.id);
+        if (index !== -1) {
+          // Merge the new settings (like brandColor) into the existing clinic data
+          state.user.clinics[index] = { 
+            ...state.user.clinics[index], 
+            ...action.payload 
+          };
+        }
       }
     },
   },
 });
 
-export const { authRequest, authSuccess, authFailure, logout } = authSlice.actions;
+export const { 
+  authRequest, 
+  authSuccess, 
+  authFailure, 
+  logout, 
+  updateClinicSettings,
+  switchClinic // Export the new action
+} = authSlice.actions;
 
 export default authSlice.reducer;
