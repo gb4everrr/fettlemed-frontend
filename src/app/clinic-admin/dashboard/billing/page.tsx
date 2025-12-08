@@ -182,7 +182,7 @@ export default function BillingPage() {
         </div>
 
         {/* Content Area */}
-        <div className="min-h-[500px]">
+        <div className="pb-10 min-h-[500px]">
           {activeTab === 'invoices' && (
             <InvoicesTab 
                 invoices={invoices} 

@@ -360,7 +360,7 @@ export function EditAppointmentModal({
                     <div>
                       <div className="flex items-center text-sm text-gray-500 mb-2"><Clock className="h-4 w-4 mr-2" /><span className="font-medium">Date & Time</span></div>
                       <p className="text-gray-800 font-medium">{formatDateTime(appointment.datetime_start, clinicTimezone)}</p>
-                      <p className="text-xs text-gray-500 mt-1">Timezone: {clinicTimezone}</p>
+                      {/*<p className="text-xs text-gray-500 mt-1">Timezone: {clinicTimezone}</p>*/}
                     </div>
                     <div>
                       <div className="flex items-center text-sm text-gray-500 mb-2"><User className="h-4 w-4 mr-2" /><span className="font-medium">Patient</span></div>

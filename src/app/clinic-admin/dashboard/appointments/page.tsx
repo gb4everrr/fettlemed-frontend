@@ -1,4 +1,3 @@
-// src/app/clinic-admin/dashboard/appointments/page.tsx
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -15,7 +14,6 @@ import Button from '@/components/ui/Button';
 import ClinicDashboardLayout from '@/components/ClinicDashboardLayout';
 import DatePicker from '@/components/ui/DatePicker';
 
-import Input from '@/components/ui/Input';
 import {
   Plus,
   Calendar,
@@ -44,6 +42,26 @@ import {
 import { getWeekDays } from '@/lib/utils/datetime';
 import { doctorColor } from '@/lib/utils/appointments';
 
+// --- HELPER 1: Format Time for Display (e.g. "3:00 PM") ---
+const formatSidebarTime = (dateString: string, timezone: string) => {
+  const date = new Date(dateString);
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: timezone // Forces calculation in clinic's timezone
+  });
+  return formatter.format(date); 
+};
+
+// --- HELPER 2: Get Date Object shifted to Clinic Timezone ---
+// This aligns the logic exactly with CalendarView
+const getZonedDate = (dateString: string | Date, timezone: string): Date => {
+  const date = new Date(dateString);
+  const zonedString = date.toLocaleString('en-US', { timeZone: timezone });
+  return new Date(zonedString);
+};
+
 // --- MAIN PAGE COMPONENT ---
 export default function AppointmentsDashboardPage() {
   const router = useRouter();
@@ -65,7 +83,7 @@ export default function AppointmentsDashboardPage() {
     endDate: '',
   });
 
-  const [activeTab, setActiveTab] = useState<'active' | 'completed' | 'all'>('all');
+  const [activeTab, setActiveTab] = useState<'active' | 'completed' | 'all'>('active');
   const [statusFilters, setStatusFilters] = useState({
     upcoming: true,
     inProgress: true,
@@ -91,7 +109,6 @@ export default function AppointmentsDashboardPage() {
 
   // Encapsulated fetch logic
   const fetchAppointmentsData = async () => {
-    //if (!activeModal) setIsLoading(true);
     setFetchError(null);
     try {
       const response = await api.get(`/appointments`, {
@@ -136,13 +153,11 @@ export default function AppointmentsDashboardPage() {
 
     const fetchClinicDetails = async () => {
       try {
-        // CHANGE THIS LINE: Pass clinic_id in params object
         const response = await api.get(`/clinic/${clinicId}`, { 
           params: { clinic_id: clinicId } 
         });
         
         if (response.data.timezone) setClinicTimezone(response.data.timezone);
-        console.log(clinicId);
       } catch (err) {
         console.error('Failed to fetch clinic details:', err, clinicId);
       }
@@ -166,8 +181,6 @@ export default function AppointmentsDashboardPage() {
   };
 
   const handleDateFilterChange = (key: 'startDate' | 'endDate', date: Date) => {
-    // Convert Date object to YYYY-MM-DD string for the filter state
-    // Using offset to ensure we get the correct local date string
     const offset = date.getTimezoneOffset();
     const adjustedDate = new Date(date.getTime() - (offset * 60 * 1000));
     const dateStr = adjustedDate.toISOString().split('T')[0];
@@ -235,14 +248,6 @@ export default function AppointmentsDashboardPage() {
   );
   const totalPages = Math.ceil(filteredAppointments.length / itemsPerPage);
 
-  // Calendar layout helpers
-  const getAppointmentsForDay = (day: Date) => {
-    return filteredAppointments.filter(apt => {
-      const aptDate = new Date(apt.datetime_start);
-      return aptDate.toDateString() === day.toDateString();
-    });
-  };
-
   const expandEarlier = () => setEarliestHour(prev => Math.max(0, prev - 1));
   const expandLater = () => setLatestHour(prev => Math.min(24, prev + 1));
 
@@ -265,8 +270,18 @@ export default function AppointmentsDashboardPage() {
     });
   };
 
-  const today = new Date();
-  const todaysAppointments = getAppointmentsForDay(today).sort((a,b) => new Date(a.datetime_start).getTime() - new Date(b.datetime_start).getTime());
+  // --- UPDATED SIDEBAR FILTERING LOGIC ---
+  // 1. We determine "Today" based on the Browser's Date (same as the Header and Calendar View)
+  // 2. We convert the Appointment's start time to Clinic Time (to get the correct visual date)
+  // 3. We compare the two.
+  const todaysAppointments = appointments
+    .filter(apt => {
+      const aptZoned = getZonedDate(apt.datetime_start, clinicTimezone);
+      const today = new Date(); // Browser's Today
+      return aptZoned.toDateString() === today.toDateString();
+    })
+    .sort((a,b) => new Date(a.datetime_start).getTime() - new Date(b.datetime_start).getTime());
+  // ----------------------------------------
 
   // --- Modal Handlers ---
   const closeModal = () => {
@@ -310,7 +325,6 @@ export default function AppointmentsDashboardPage() {
             Appointments Dashboard
           </h1>
           <div className="flex flex-wrap items-center gap-2">
-            {/* View Toggle */}
             <div className="flex bg-gray-100 rounded-lg p-1">
               <button onClick={() => setViewMode('list')} className={`flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === 'list' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}>
                 <List className="h-4 w-4 mr-1" />
@@ -321,14 +335,12 @@ export default function AppointmentsDashboardPage() {
                 Calendar
               </button>
             </div>
-            {/* Filters Toggle */}
             <button onClick={() => setShowFilters(!showFilters)} className="flex items-center text-sm text-gray-600 hover:text-gray-800 font-medium p-2 rounded-lg hover:bg-gray-100">
               <Filter className="h-4 w-4 mr-2" />
               {showFilters ? 'Hide' : 'Show'} Filters
             </button>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-            {/* Action Buttons */}
             <Button shine variant="primary" size="md" className="flex items-center" onClick={() => setActiveModal('newAppointment')}>
               <Plus className="h-4 w-4 mr-2" />
               New Appointment
@@ -347,18 +359,16 @@ export default function AppointmentsDashboardPage() {
             <Card className="shadow-md overflow-visible relative z-0">
               <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between p-4 gap-4 border-b border-gray-200">
                 <nav className="flex space-x-6">
-                  <button onClick={() => setActiveTab('all')} className={`whitespace-nowrap pb-2 border-b-2 font-medium text-sm transition-colors ${activeTab === 'all' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-                    All
-                  </button>
                   <button onClick={() => setActiveTab('active')} className={`whitespace-nowrap pb-2 border-b-2 font-medium text-sm transition-colors ${activeTab === 'active' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
                     Active
+                  </button>
+                  <button onClick={() => setActiveTab('all')} className={`whitespace-nowrap pb-2 border-b-2 font-medium text-sm transition-colors ${activeTab === 'all' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                    All
                   </button>
                   <button onClick={() => setActiveTab('completed')} className={`whitespace-nowrap pb-2 border-b-2 font-medium text-sm transition-colors ${activeTab === 'completed' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
                     Completed
                   </button>
-                  
                 </nav>
-                
                 <div className="flex flex-wrap items-center gap-2">
                   <button onClick={() => toggleStatusFilter('upcoming')} className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${statusFilters.upcoming ? 'bg-blue-100 text-blue-800 border-2 border-blue-500' : 'bg-gray-100 text-gray-400 border-2 border-gray-300'}`}>
                     Upcoming
@@ -396,7 +406,6 @@ export default function AppointmentsDashboardPage() {
                         ))}
                       </select>
                     </div>
-                    {/* --- UPDATED: Start Date Filter with DatePicker --- */}
                     <div className="relative z-30">
                       <DatePicker
                         label="Start Date"
@@ -405,8 +414,6 @@ export default function AppointmentsDashboardPage() {
                         placeholder="Select start date"
                       />
                     </div>
-
-                    {/* --- UPDATED: End Date Filter with DatePicker --- */}
                     <div className="relative z-30">
                       <DatePicker
                         label="End Date"
@@ -419,8 +426,7 @@ export default function AppointmentsDashboardPage() {
                 </div>
               )}
             </Card>
-<div className="relative z-0">
-            {/* List View / Calendar View */}
+            <div className="relative z-0">
             {viewMode === 'list' ? (
               <ListView
                 appointments={paginatedAppointments}
@@ -454,12 +460,14 @@ export default function AppointmentsDashboardPage() {
           <div className="hidden xl:flex xl:flex-col gap-6">
             <Card padding="lg" className="shadow-lg">
               <h2 className="text-lg font-bold mb-4">
-                Today's List - {today.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                Today's List - {new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
               </h2>
               <div className="space-y-4 max-h-[70vh] overflow-y-auto">
                 {todaysAppointments.length > 0 ? (
                   todaysAppointments.map(apt => {
-                    const start = new Date(apt.datetime_start);
+                    const timeString = formatSidebarTime(apt.datetime_start, clinicTimezone);
+                    const [time, period] = timeString.split(' ');
+                    
                     const statusIcon = ((): React.ReactNode => {
                       const now = new Date();
                       const s = new Date(apt.datetime_start);
@@ -475,8 +483,8 @@ export default function AppointmentsDashboardPage() {
                       <div key={apt.id} className="flex items-center gap-4 p-3 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"
                            onClick={() => handleAppointmentClick(apt)}>
                         <div className="w-12 text-center flex-shrink-0">
-                          <p className="font-bold">{start.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })}</p>
-                          <p className="text-xs text-gray-400">{start.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }).split(' ')[1]}</p>
+                          <p className="font-bold text-gray-800">{time}</p>
+                          <p className="text-xs text-gray-400 uppercase">{period}</p>
                         </div>
                         <div className="w-1.5 h-10 rounded-full" style={{ backgroundColor: doctorColor(apt.clinic_doctor_id ?? apt.doctor?.id).border }}></div>
                         <div className="flex-1 min-w-0">
@@ -500,7 +508,6 @@ export default function AppointmentsDashboardPage() {
       </div>
       
       {/* --- MODALS --- */}
-
       {activeModal === 'newAppointment' && (
         <NewAppointmentModal
           onClose={closeModal}
@@ -532,8 +539,6 @@ export default function AppointmentsDashboardPage() {
           user={user}
         />
       )}
-      {/* --- End Modals --- */}
-
     </ClinicDashboardLayout>
   );
 }

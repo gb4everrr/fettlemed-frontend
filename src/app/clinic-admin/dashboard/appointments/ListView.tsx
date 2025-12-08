@@ -66,8 +66,8 @@ export default function ListView({
                       </div>
                       <div className="mt-2">
                         <h3 className="text-lg font-bold text-gray-800">Appointment Time</h3>
-                        <p className="text-sm text-gray-600">{formatDateTime(appointment.datetime_start, clinicTimezone)} <span className="text-xs text-gray-400 ml-2">({clinicTimezone})</span></p>
-                        <p className="text-xs text-gray-400">Local: {formatDateTime(appointment.datetime_start)}</p>
+                        <p className="text-sm text-gray-600">{formatDateTime(appointment.datetime_start, clinicTimezone)} {/*<span className="text-xs text-gray-400 ml-2">({clinicTimezone})</span>*/}</p>
+                        {/*<p className="text-xs text-gray-400">Local: {formatDateTime(appointment.datetime_start)}</p>*/}
                         {rescheduled && originalTime && (<p className="text-xs text-amber-600 mt-1 flex items-center"><RefreshCw className="h-3 w-3 mr-1" />Originally scheduled: {originalTime}</p>)}
                       </div>
                       {appointment.patient && (<p className="text-sm text-gray-500 mt-2"><span className="font-semibold">Patient:</span> {appointment.patient.first_name} {appointment.patient.last_name}</p>)}
