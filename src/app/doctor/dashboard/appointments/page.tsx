@@ -1,578 +1,600 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useAppSelector, useAppDispatch } from '@/lib/hooks';
 import api from '@/services/api';
+
+// UI Components
 import DoctorDashboardLayout from '@/components/DoctorDashboardLayout';
 import Card from '@/components/ui/Card';
-import Input from '@/components/ui/Input';
-import LoadingSpinner from '@/components/ui/LoadingSpinner';
-import { Filter } from 'lucide-react';
-import Button from '@/components/ui/Button';
+import { Can } from '@/lib/features/auth/Can'; 
+import { 
+  Calendar as CalendarIcon, 
+  Filter, 
+  List, 
+  CalendarDays, 
+  MapPin 
+} from 'lucide-react';
+import { 
+  FaStethoscope, 
+  FaNotesMedical, 
+  FaExchangeAlt 
+} from 'react-icons/fa'; // Matching Icons from Patient View
 
-// --- Interfaces ---
-interface DetailedAppointment {
-    id: number;
-    datetime_start: string; // Now properly formatted as UTC ISO string from backend
-    datetime_end: string;   // Now properly formatted as UTC ISO string from backend
-    reason: string | null;
-    status: number;
-    patient: {
-        first_name: string;
-        last_name: string;
-    } | null;
-    appointment_slot: {
-        start_time: string; // Now properly formatted as UTC ISO string from backend
-        end_time: string;   // Now properly formatted as UTC ISO string from backend
-    } | null;
-    clinic: {
-        name: string;
-    } | null;
+import ListView from './ListView';
+import CalendarView from './CalendarView';
+import DatePicker from '@/components/ui/DatePicker';
+import { Appointment, ClinicDoctor, ClinicPatient } from '@/types/clinic'; 
+import { getWeekDays } from '@/lib/utils/datetime';
+
+// Modal
+import { EditAppointmentModal } from '@/components/doctor/modals/EditAppointmentModal'; 
+
+// Helpers
+import { getPermissionsForRole } from '@/config/roles'; 
+import { setActivePermissions } from '@/lib/features/auth/authSlice';
+
+// --- TYPES ---
+interface ClinicContext {
+  clinicId: number;
+  localDoctorId: number;
+  role: string;
+  timezone: string;
 }
 
-type AppointmentStatus = 'scheduled' | 'completed' | 'cancelled' | 'no-show' | 'unknown';
+interface ClinicOption {
+    id: number;
+    name: string;
+    active: boolean;
+    timezone?: string;
+    role: string; // Enforce string
+}
 
-// --- Helper Functions ---
+// Roles that allow seeing the full clinic schedule
+const PRIVILEGED_ROLES = ['OWNER', 'CLINIC_ADMIN', 'DOCTOR_OWNER', 'DOCTOR_PARTNER'];
 
-/**
- * Maps a numeric status from the API to a readable string.
- */
-const mapStatusToString = (status: number): AppointmentStatus => {
-    switch (status) {
-        case 0: return 'scheduled';
-        case 1: return 'completed';
-        case 2: return 'cancelled';
-        case 3: return 'no-show';
-        default: return 'unknown';
-    }
-};
+export default function DoctorAppointmentsPage() {
+  const dispatch = useAppDispatch();
+  const { user } = useAppSelector((state: any) => state.auth);
 
-/**
- * NEW: Determine actual status based on time
- */
-const getActualStatus = (appointment: DetailedAppointment) => {
-    const now = new Date();
-    const startTime = new Date(appointment.datetime_start);
-    const endTime = new Date(appointment.datetime_end);
+  // --- 1. STATE MANAGEMENT ---
+  const [context, setContext] = useState<ClinicContext | null>(null);
+  const [loadingContext, setLoadingContext] = useState(true);
+  
+  // Lists for Dropdowns
+  const [associatedClinics, setAssociatedClinics] = useState<ClinicOption[]>([]);
+  const [clinicDoctors, setClinicDoctors] = useState<ClinicDoctor[]>([]);
+  const [clinicPatients, setClinicPatients] = useState<ClinicPatient[]>([]);
 
-    // If manually cancelled
-    if (appointment.status === 2) {
-        return { text: 'Cancelled', color: 'bg-red-100 text-red-800', key: 'cancelled' };
-    }
+  // Selection State
+  const [selectedClinicId, setSelectedClinicId] = useState<number>(-1); // Default to -1 (All)
 
-    // If manually marked no-show
-    if (appointment.status === 3) {
-        return { text: 'No-Show', color: 'bg-yellow-100 text-yellow-800', key: 'no-show' };
-    }
+  // Data State
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [isLoadingData, setIsLoadingData] = useState(false);
+  
+  // UI State
+  const [viewScope, setViewScope] = useState<'my' | 'clinic'>('my');
+  const [viewMode, setViewMode] = useState<'list' | 'calendar'>('calendar');
+  const [currentWeek, setCurrentWeek] = useState(new Date());
+  
+  // Filters
+  const [activeTab, setActiveTab] = useState<'active' | 'completed' | 'all'>('active');
+  const [showFilters, setShowFilters] = useState(false);
+  const [filters, setFilters] = useState({ 
+      startDate: '', 
+      endDate: '',
+      clinic_doctor_id: '',
+      clinic_patient_id: '' 
+  });
+  const [statusFilters, setStatusFilters] = useState({
+      upcoming: true,
+      inProgress: true,
+      completed: true,
+      cancelled: true,
+  });
 
-    // If manually completed
-    if (appointment.status === 1) {
-        return { text: 'Completed', color: 'bg-green-100 text-green-800', key: 'completed' };
-    }
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 50;
 
-    // Time-based status
-    if (now < startTime) {
-        // Future appointment
-        return { text: 'Scheduled', color: 'bg-blue-100 text-blue-800', key: 'scheduled' };
-    } else if (now >= startTime && now <= endTime) {
-        // Currently happening
-        return { text: 'In Progress', color: 'bg-purple-100 text-purple-800', key: 'inProgress' };
+  // Modal State
+  const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+
+  // Calendar Refs
+  const calendarRef = useRef<HTMLDivElement | null>(null);
+  const [earliestHour, setEarliestHour] = useState<number>(8);
+  const [latestHour, setLatestHour] = useState<number>(18);
+
+  // --- 2. BOOTSTRAP LOGIC ---
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchClinics = async () => {
+        try {
+            const { data: associations } = await api.get('/doctor/my-clinics-details');
+            
+            if (associations && associations.length > 0) {
+                const options: ClinicOption[] = associations.map((a: any) => ({
+                    id: a.clinic.id,
+                    name: a.clinic.name,
+                    active: a.active,
+                    timezone: a.clinic.timezone,
+                    role: (a.assigned_role || a.role || 'DOCTOR_VISITING').toUpperCase()
+                }));
+
+                setAssociatedClinics(options);
+
+                // Default to "All Clinics" (-1) if multiple exist, else the specific one
+                if (options.length > 0) {
+                    setSelectedClinicId(-1);
+                }
+            }
+        } catch (err) {
+            console.error("Failed to fetch clinic list:", err);
+        } finally {
+            setLoadingContext(false);
+        }
+    };
+    fetchClinics();
+  }, [user]);
+
+  // --- 3. PERMISSION & CONTEXT LOGIC ---
+  
+  // Determine if the "Clinic View" toggle should be visible
+  const canAccessClinicView = useMemo(() => {
+      if (selectedClinicId === -1) {
+          // "All Clinics": Show toggle if user is Privileged in AT LEAST ONE clinic
+          return associatedClinics.some(c => PRIVILEGED_ROLES.includes(c.role));
+      } else {
+          // "Specific Clinic": Show toggle only if Privileged in THIS clinic
+          const current = associatedClinics.find(c => c.id === selectedClinicId);
+          return current ? PRIVILEGED_ROLES.includes(current.role) : false;
+      }
+  }, [selectedClinicId, associatedClinics]);
+
+  // Context Switcher & Permission Hydration
+  useEffect(() => {
+    // Determine Effective Role for Redux
+    let effectiveRole = 'DOCTOR_VISITING';
+    let timezone = 'UTC';
+    let localDoctorId = 0;
+
+    if (selectedClinicId === -1) {
+        // "All Clinics": Grant highest permissions possessed
+        if (associatedClinics.some(c => ['OWNER', 'CLINIC_ADMIN'].includes(c.role))) {
+            effectiveRole = 'CLINIC_ADMIN';
+        } else if (associatedClinics.some(c => ['DOCTOR_OWNER', 'DOCTOR_PARTNER'].includes(c.role))) {
+            effectiveRole = 'DOCTOR_PARTNER';
+        }
     } else {
-        // Past appointment (auto-completed)
-        return { text: 'Completed', color: 'bg-green-100 text-green-800', key: 'completed' };
-    }
-};
-
-/**
- * FIXED: Formats a UTC ISO date string to user's local timezone
- */
-const formatDate = (utcIsoString: string): string => {
-    if (!utcIsoString) return 'Invalid Date';
-    
-    try {
-        const date = new Date(utcIsoString);
-        
-        if (isNaN(date.getTime())) {
-            return 'Invalid Date';
+        const current = associatedClinics.find(c => c.id === selectedClinicId);
+        if (current) {
+            effectiveRole = current.role;
+            timezone = current.timezone || 'UTC';
         }
-
-        return date.toLocaleDateString(undefined, {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-        });
-    } catch (error) {
-        console.error('Error formatting date:', error);
-        return 'Invalid Date';
     }
-};
 
-/**
- * FIXED: Formats a UTC ISO time string to user's local timezone
- */
-const formatTime = (utcIsoString: string): string => {
-    if (!utcIsoString) return 'Invalid Time';
-    
-    try {
-        const time = new Date(utcIsoString);
+    // Hydrate Redux
+    const perms = getPermissionsForRole(effectiveRole);
+    dispatch(setActivePermissions(perms));
 
-        if (isNaN(time.getTime())) {
-            return 'Invalid Time';
-        }
-
-        return time.toLocaleTimeString(undefined, {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true,
-        });
-    } catch (error) {
-        console.error('Error formatting time:', error);
-        return 'Invalid Time';
-    }
-};
-
-/**
- * Format full datetime with timezone info
- */
-const formatFullDateTime = (utcIsoString: string, timeZone?: string): string => {
-    if (!utcIsoString) return 'Invalid DateTime';
-    
-    try {
-        const date = new Date(utcIsoString);
-        
-        if (isNaN(date.getTime())) {
-            return 'Invalid DateTime';
-        }
-
-        const options: Intl.DateTimeFormatOptions = {
-            weekday: 'short',
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric',
-            hour: 'numeric',
-            minute: '2-digit',
-            hour12: true,
-        };
-
-        if (timeZone) {
-            options.timeZone = timeZone;
-        }
-
-        return date.toLocaleString(undefined, options);
-    } catch (error) {
-        console.error('Error formatting full datetime:', error);
-        return 'Invalid DateTime';
-    }
-};
-
-/**
- * Gets Tailwind CSS classes for status chips
- */
-const getStatusChipColor = (status: AppointmentStatus): string => {
-    switch (status) {
-        case 'scheduled': return 'bg-blue-100 text-blue-800';
-        case 'completed': return 'bg-green-100 text-green-800';
-        case 'cancelled': return 'bg-red-100 text-red-800';
-        case 'no-show': return 'bg-yellow-100 text-yellow-800';
-        default: return 'bg-gray-100 text-gray-800';
-    }
-};
-
-// --- Main Component ---
-export default function MyAppointmentsPage() {
-    const [appointments, setAppointments] = useState<DetailedAppointment[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    
-    // Filter states
-    const [searchTerm, setSearchTerm] = useState('');
-    const [dateFilter, setDateFilter] = useState('');
-    const [showFilters, setShowFilters] = useState(false);
-
-    // NEW: Tab and status filter states
-    const [activeTab, setActiveTab] = useState<'active' | 'completed' | 'all'>('active');
-    const [statusFilters, setStatusFilters] = useState({
-        scheduled: true,
-        inProgress: true,
-        completed: true,
-        cancelled: true,
-        noShow: true,
+    // Update Context State
+    setContext({
+        clinicId: selectedClinicId,
+        localDoctorId, // Note: ID logic is complex in mixed view, defaults to 0
+        role: effectiveRole,
+        timezone
     });
 
-    // NEW: Pagination states
-    const [currentPage, setCurrentPage] = useState(1);
-    const itemsPerPage = 50;
+    // Safety: Reset scope if switching to restricted context
+    if (!canAccessClinicView && viewScope === 'clinic') {
+        setViewScope('my');
+    }
 
-    // --- Data Fetching ---
-    useEffect(() => {
-        const fetchAppointments = async () => {
-            try {
-                setError(null);
-                const { data } = await api.get<DetailedAppointment[]>('/doctor/my-appointments-details');
-                console.log('Fetched appointments:', data);
-                
-                // Sort appointments by datetime
-                const sortedAppointments = (data || []).sort((a, b) => {
-                    return new Date(a.datetime_start).getTime() - new Date(b.datetime_start).getTime();
-                });
-                
-                setAppointments(sortedAppointments);
-            } catch (err: any) {
-                console.error("Error fetching appointments:", err);
-                setError(err.response?.data?.error || 'Failed to load your appointments. Please try again later.');
-            } finally {
-                setIsLoading(false);
-            }
-        };
-        fetchAppointments();
-    }, []);
+    // Fetch filters (Doctors/Patients) only for specific clinics
+    if (selectedClinicId !== -1) {
+        // ... (Existing logic to fetch doctors/patients for dropdowns) ...
+        // Keeping it simple for this snippet, reusing your previous logic or can be added back
+    }
 
-    // Reset to page 1 when tab or filters change
-    useEffect(() => {
-        setCurrentPage(1);
-    }, [activeTab, statusFilters]);
+  }, [selectedClinicId, associatedClinics, dispatch, canAccessClinicView, viewScope]);
 
-    const toggleStatusFilter = (status: keyof typeof statusFilters) => {
-        setStatusFilters(prev => ({ ...prev, [status]: !prev[status] }));
-    };
 
-    // --- Filtering Logic ---
-    const getFilteredAppointments = () => {
-        const now = new Date();
+  // --- 4. DATA FETCHING (Hybrid Strategy) ---
+  const fetchAppointments = async () => {
+    if (associatedClinics.length === 0) return;
+    
+    setIsLoadingData(true);
+    let finalData: Appointment[] = [];
+
+    try {
+        // A. ALWAYS fetch "My Appointments" (Global Personal Data)
+        const myApptsResponse = await api.get('/doctor/my-appointments-details');
         
-        let filtered = appointments;
+        // FIX FOR MY VIEW: Inject the current User as the Doctor if missing
+        const myAppts = myApptsResponse.data.map((appt: any) => ({
+            ...appt,
+            // If API doesn't return doctor object, use the logged-in user profile
+            doctor: appt.doctor || { 
+                id: user.id, 
+                first_name: user.first_name, 
+                last_name: user.last_name 
+            }
+        }));
 
-        // Tab filtering
-        if (activeTab === 'active') {
-            filtered = appointments.filter(apt => {
-                const endTime = new Date(apt.datetime_end);
-                return endTime >= now && apt.status !== 2; // Not past and not cancelled
-            });
-        } else if (activeTab === 'completed') {
-            filtered = appointments.filter(apt => {
-                const endTime = new Date(apt.datetime_end);
-                return endTime < now || apt.status === 2 || apt.status === 1 || apt.status === 3;
-            });
-        }
+        // B. Handle Scope Logic
+        if (viewScope === 'my') {
+            // Filter "My Global List" by selected context
+            finalData = myAppts.filter((a: Appointment) => 
+                selectedClinicId === -1 ? true : a.clinic_id === selectedClinicId
+            );
+        } 
+        else if (viewScope === 'clinic') {
+            // --- HYBRID FETCH ---
+            const targetClinics = selectedClinicId === -1 
+                ? associatedClinics 
+                : associatedClinics.filter(c => c.id === selectedClinicId);
 
-        // Status filtering
-        filtered = filtered.filter(apt => {
-            const status = getActualStatus(apt);
-            return statusFilters[status.key as keyof typeof statusFilters];
-        });
+            const fetchPromises = targetClinics.map(async (clinic) => {
+                const isPrivileged = PRIVILEGED_ROLES.includes(clinic.role);
 
-        // Date filter - compare dates in user's local timezone
-        if (dateFilter) {
-            filtered = filtered.filter(apt => {
-                try {
-                    const apptDate = new Date(apt.datetime_start);
-                    const filterDate = new Date(dateFilter);
-                    
-                    const apptDateStr = apptDate.toISOString().split('T')[0];
-                    const filterDateStr = filterDate.toISOString().split('T')[0];
-                    
-                    return apptDateStr === filterDateStr;
-                } catch (error) {
-                    console.error('Date filtering error:', error);
-                    return true;
+                if (isPrivileged) {
+                    // 1. Has Permission -> Fetch Full Schedule from Admin API
+                    try {
+                        const res = await api.get('/appointments', { 
+                            params: { 
+                                clinic_id: clinic.id,
+                                startDate: filters.startDate,
+                                endDate: filters.endDate
+                            } 
+                        });
+                        
+                        // FIX FOR CLINIC VIEW: Inject the Clinic details
+                        // The admin API is scoped to a clinic, so it often omits the clinic object.
+                        // We manually attach it here so the UI can display it.
+                        return res.data.map((appt: any) => ({
+                            ...appt,
+                            clinic: appt.clinic || {
+                                id: clinic.id,
+                                name: clinic.name,
+                                timezone: clinic.timezone
+                            }
+                        }));
+
+                    } catch (e) {
+                        console.warn(`Schedule fetch failed for ${clinic.name}`, e);
+                        return [];
+                    }
+                } else {
+                    // 2. No Permission (Visiting) -> Fallback to My Appointments for this clinic
+                    return myAppts.filter((a: Appointment) => a.clinic_id === clinic.id);
                 }
             });
+
+            const results = await Promise.all(fetchPromises);
+            finalData = results.flat();
         }
 
-        // Text search filter
-        if (searchTerm) {
-            const search = searchTerm.toLowerCase();
-            filtered = filtered.filter(apt => {
-                const patientName = `${apt.patient?.first_name || ''} ${apt.patient?.last_name || ''}`.toLowerCase();
-                const clinicName = (apt.clinic?.name || '').toLowerCase();
-                const reason = (apt.reason || '').toLowerCase();
-                
-                return patientName.includes(search) || clinicName.includes(search) || reason.includes(search);
-            });
-        }
+        // C. Deduplication & Sorting
+        const uniqueMap = new Map();
+        finalData.forEach(item => uniqueMap.set(item.id, item));
+        const uniqueData = Array.from(uniqueMap.values()) as Appointment[];
 
-        return filtered;
-    };
+        const sorted = uniqueData.sort((a, b) => 
+            new Date(a.datetime_start).getTime() - new Date(b.datetime_start).getTime()
+        );
 
-    const filteredAppointments = getFilteredAppointments();
+        setAppointments(sorted);
 
-    // Pagination
-    const totalPages = Math.ceil(filteredAppointments.length / itemsPerPage);
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    const endIndex = startIndex + itemsPerPage;
-    const paginatedAppointments = filteredAppointments.slice(startIndex, endIndex);
+    } catch (error) {
+        console.error("Error fetching appointments:", error);
+    } finally {
+        setIsLoadingData(false);
+    }
+  };
 
-    // --- Render Logic ---
-    const renderContent = () => {
-        if (isLoading) {
-            return <div className="flex justify-center mt-8"><LoadingSpinner /></div>;
-        }
-        if (error) {
-            return (
-                <div className="text-center mt-8">
-                    <p className="text-red-500 mb-4">{error}</p>
-                    <button 
-                        onClick={() => window.location.reload()} 
-                        className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+  useEffect(() => {
+    if (!loadingContext) fetchAppointments();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadingContext, selectedClinicId, viewScope, filters]); 
+
+  // --- 5. CLIENT SIDE FILTERING ---
+  const getFilteredAppointments = () => {
+    const now = new Date();
+    let filtered = appointments;
+
+    // Tab Logic
+    if (activeTab === 'active') {
+      filtered = filtered.filter(apt => {
+        const endTime = new Date(apt.datetime_end);
+        return endTime >= now && apt.status !== 2 && apt.status !== 3;
+      });
+    } else if (activeTab === 'completed') {
+      filtered = filtered.filter(apt => {
+        const endTime = new Date(apt.datetime_end);
+        return endTime < now || apt.status === 2 || apt.status === 3;
+      });
+    }
+
+    // Status Chip Logic
+    filtered = filtered.filter(apt => {
+      const isCancelled = apt.status === 2;
+      const isCompleted = apt.status === 3; 
+      const isUpcoming = new Date(apt.datetime_start) > now && !isCancelled && !isCompleted;
+      const isInProgress = new Date(apt.datetime_start) <= now && new Date(apt.datetime_end) >= now && !isCancelled && !isCompleted;
+
+      if (isCancelled && !statusFilters.cancelled) return false;
+      if (isUpcoming && !statusFilters.upcoming) return false;
+      if (isInProgress && !statusFilters.inProgress) return false;
+      if (isCompleted && !statusFilters.completed) return false;
+      
+      return true;
+    });
+
+    // Client-side Doctor/Patient Filter (if filters set)
+    if (filters.clinic_patient_id) {
+        filtered = filtered.filter((a: any) => String(a.clinic_patient_id) === filters.clinic_patient_id);
+    }
+
+    return filtered;
+  };
+
+  const filteredList = getFilteredAppointments();
+  const paginatedList = filteredList.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const totalPages = Math.ceil(filteredList.length / itemsPerPage);
+
+  // --- HANDLERS ---
+  const handleAppointmentClick = (appt: Appointment) => {
+      setSelectedAppointment(appt);
+      setIsEditModalOpen(true);
+  };
+
+  const handleFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+      setFilters(prev => ({...prev, [e.target.name]: e.target.value}));
+  };
+
+  const toggleStatusFilter = (key: keyof typeof statusFilters) => {
+      setStatusFilters(prev => ({...prev, [key]: !prev[key]}));
+  };
+
+  // --- RENDER ---
+  if (loadingContext) {
+      return <DoctorDashboardLayout><div className="h-screen flex items-center justify-center text-gray-500">Loading Clinics...</div></DoctorDashboardLayout>;
+  }
+
+  const weekDays = getWeekDays(currentWeek);
+  
+  // Resolve current display name
+  const currentContextName = selectedClinicId === -1 
+      ? "All Associated Clinics" 
+      : associatedClinics.find(c => c.id === selectedClinicId)?.name || "Unknown Clinic";
+
+  return (
+    <DoctorDashboardLayout>
+      <div className="p-6 md:p-8">
+        {/* HEADER */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-800 font-inter flex items-center mb-2">
+                <CalendarIcon className="h-8 w-8 mr-2 text-gray-600" />
+                Appointments
+            </h1>
+            <p className="text-sm text-gray-500 font-inter ml-10">
+                Viewing schedule for <span className="font-semibold text-(--color-primary-brand)">{currentContextName}</span>
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+             
+            {/* 1. CLINIC SELECTOR */}
+            {associatedClinics.length > 0 && (
+                <div className="relative min-w-[200px]">
+                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+                    <select 
+                        className="w-full appearance-none bg-white border border-gray-300 text-gray-700 py-2 pl-9 pr-10 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-sm h-10"
+                        value={selectedClinicId}
+                        onChange={(e) => {
+                            setSelectedClinicId(Number(e.target.value));
+                            setViewScope('my'); // Reset to My View on switch
+                        }}
                     >
-                        Retry
-                    </button>
+                        <option value={-1}>All Clinics</option>
+                        <option disabled>──────────</option>
+                        {associatedClinics.map(c => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                    </select>
+                    <FaExchangeAlt className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none text-xs" />
                 </div>
-            );
-        }
-        if (paginatedAppointments.length === 0) {
-            return <p className="text-center text-gray-500 mt-8">No appointments found matching your criteria.</p>;
-        }
-        return (
-            <>
-                <div className="space-y-4">
-                    {paginatedAppointments.map(appt => {
-                        const statusTag = getActualStatus(appt);
-                        return (
-                            <Card key={appt.id} padding="md" className="flex flex-col md:flex-row justify-between items-start md:items-center hover:shadow-md transition-shadow">
-                                <div className="flex-grow">
-                                    <div className="flex items-center gap-2 mb-2">
-                                        <p className="text-lg font-bold text-gray-800">
-                                            {`${appt.patient?.first_name ?? 'N/A'} ${appt.patient?.last_name ?? ''}`}
-                                        </p>
-                                        <span className={`px-2.5 py-0.5 text-xs font-semibold rounded-full ${statusTag.color}`}>
-                                            {statusTag.text}
-                                        </span>
-                                    </div>
-                                    <p className="text-sm text-gray-600">at {appt.clinic?.name ?? 'N/A'}</p>
-                                    {appt.reason && <p className="text-xs text-gray-500 mt-1">Reason: {appt.reason}</p>}
-                                </div>
-                                <div className="flex flex-col items-start md:items-end mt-4 md:mt-0">
-                                    <p className="font-semibold text-gray-700">
-                                        {formatDate(appt.datetime_start)}
-                                    </p>
-                                    <p className="text-sm text-gray-500">
-                                        {appt.appointment_slot ? (
-                                            <>
-                                                {formatTime(appt.appointment_slot.start_time)} - {formatTime(appt.appointment_slot.end_time)}
-                                            </>
-                                        ) : (
-                                            formatTime(appt.datetime_start)
-                                        )}
-                                    </p>
-                                    <p className="text-xs text-gray-400">
-                                        {formatFullDateTime(appt.datetime_start)}
-                                    </p>
-                                </div>
-                            </Card>
-                        );
-                    })}
-                </div>
+            )}
 
-                {/* Pagination Controls */}
-                {totalPages > 1 && (
-                    <div className="mt-6 flex items-center justify-between border-t border-gray-200 pt-4">
-                        <div className="text-sm text-gray-700">
-                            Showing {startIndex + 1} to {Math.min(endIndex, filteredAppointments.length)} of {filteredAppointments.length} results
-                        </div>
-                        <div className="flex space-x-2">
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                                disabled={currentPage === 1}
+             {/* 2. VIEW SCOPE TOGGLE (RBAC GATED) */}
+             {canAccessClinicView && (
+               <Can perform="view_all_schedule"> 
+                <div className="flex items-center bg-white border border-gray-200 rounded-lg p-1 h-10 shadow-sm">
+                  <button
+                    onClick={() => setViewScope('my')}
+                    className={`flex items-center px-3 h-full rounded-md text-sm font-medium transition-all gap-2 ${
+                      viewScope === 'my' 
+                      ? 'bg-(--color-primary-brand) text-white shadow-sm' 
+                      : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50'
+                    }`}
+                  >
+                    <FaStethoscope /> My View
+                  </button>
+                  <button
+                    onClick={() => setViewScope('clinic')}
+                    className={`flex items-center px-3 h-full rounded-md text-sm font-medium transition-all gap-2 ${
+                      viewScope === 'clinic' 
+                      ? 'bg-(--color-primary-brand) text-white shadow-sm' 
+                      : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50'
+                    }`}
+                  >
+                    <FaNotesMedical /> Clinic View
+                  </button>
+                </div>
+               </Can>
+             )}
+
+            {/* 3. VIEW MODE TOGGLE */}
+            <div className="flex h-10 items-center bg-white border border-gray-200 rounded-lg p-1 shadow-sm">
+              <button 
+                  onClick={() => setViewMode('list')} 
+                  className={`flex items-center justify-center h-full px-3 rounded-md transition-colors ${
+                      viewMode === 'list' ? 'bg-(--color-primary-brand) text-white' : 'text-gray-500 hover:text-gray-700'
+                  }`}
+              >
+                  <List className="h-4 w-4" />
+              </button>
+              <button 
+                  onClick={() => setViewMode('calendar')} 
+                  className={`flex items-center justify-center h-full px-3 rounded-md transition-colors ${
+                      viewMode === 'calendar' ? 'bg-(--color-primary-brand) text-white' : 'text-gray-500 hover:text-gray-700'
+                  }`}
+              >
+                  <CalendarDays className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* FILTERS CARD */}
+        <Card className="shadow-md mb-6 relative z-10">
+           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between p-4 border-b border-gray-200 gap-4">
+                <nav className="flex space-x-6">
+                  <button onClick={() => setActiveTab('active')} className={`pb-2 border-b-2 font-medium text-sm ${activeTab === 'active' ? 'border-(--color-primary-brand) text-(--color-primary-brand)' : 'border-transparent text-gray-500'}`}>Active</button>
+                  <button onClick={() => setActiveTab('all')} className={`pb-2 border-b-2 font-medium text-sm ${activeTab === 'all' ? 'border-(--color-primary-brand) text-(--color-primary-brand)' : 'border-transparent text-gray-500'}`}>All</button>
+                  <button onClick={() => setActiveTab('completed')} className={`pb-2 border-b-2 font-medium text-sm ${activeTab === 'completed' ? 'border-(--color-primary-brand) text-(--color-primary-brand)' : 'border-transparent text-gray-500'}`}>History</button>
+                </nav>
+                
+                <div className="flex flex-wrap gap-2">
+                    <button onClick={() => toggleStatusFilter('upcoming')} className={`px-3 py-1 rounded-full text-xs font-semibold ${statusFilters.upcoming ? 'bg-blue-100 text-blue-800 border border-blue-200' : 'bg-gray-100 text-gray-400 border border-gray-200'}`}>Upcoming</button>
+                    <button onClick={() => toggleStatusFilter('inProgress')} className={`px-3 py-1 rounded-full text-xs font-semibold ${statusFilters.inProgress ? 'bg-purple-100 text-purple-800 border border-purple-200' : 'bg-gray-100 text-gray-400 border border-gray-200'}`}>In Progress</button>
+                    <button onClick={() => toggleStatusFilter('completed')} className={`px-3 py-1 rounded-full text-xs font-semibold ${statusFilters.completed ? 'bg-green-100 text-green-800 border border-green-200' : 'bg-gray-100 text-gray-400 border border-gray-200'}`}>Completed</button>
+                    <button onClick={() => toggleStatusFilter('cancelled')} className={`px-3 py-1 rounded-full text-xs font-semibold ${statusFilters.cancelled ? 'bg-red-100 text-red-800 border border-red-200' : 'bg-gray-100 text-gray-400 border border-gray-200'}`}>Cancelled</button>
+                </div>
+           </div>
+
+           <div className="p-4">
+                <button onClick={() => setShowFilters(!showFilters)} className="flex items-center text-sm text-gray-600 font-medium mb-4">
+                    <Filter className="h-4 w-4 mr-2" /> {showFilters ? 'Hide Filters' : 'Show Advanced Filters'}
+                </button>
+                
+                {showFilters && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        {/* Only show Doctor filter if looking at a specific clinic's full view */}
+                        {viewScope === 'clinic' && selectedClinicId !== -1 && (
+                            <div>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">Doctor</label>
+                                <select 
+                                    name="clinic_doctor_id" 
+                                    value={filters.clinic_doctor_id} 
+                                    onChange={handleFilterChange}
+                                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 text-sm"
+                                >
+                                    <option value="">All Doctors</option>
+                                    {clinicDoctors.map(doc => (
+                                        <option key={doc.id} value={doc.id}>{doc.first_name} {doc.last_name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+                        <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">Patient</label>
+                            <select 
+                                name="clinic_patient_id" 
+                                value={filters.clinic_patient_id} 
+                                onChange={handleFilterChange}
+                                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-(--color-primary-brand) focus:ring-(--color-primary-brand) p-2 text-sm"
                             >
-                                Previous
-                            </Button>
-                            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                                let pageNum;
-                                if (totalPages <= 5) {
-                                    pageNum = i + 1;
-                                } else if (currentPage <= 3) {
-                                    pageNum = i + 1;
-                                } else if (currentPage >= totalPages - 2) {
-                                    pageNum = totalPages - 4 + i;
-                                } else {
-                                    pageNum = currentPage - 2 + i;
-                                }
-                                return (
-                                    <Button
-                                        key={pageNum}
-                                        variant={currentPage === pageNum ? 'primary' : 'ghost'}
-                                        size="sm"
-                                        onClick={() => setCurrentPage(pageNum)}
-                                    >
-                                        {pageNum}
-                                    </Button>
-                                );
-                            })}
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                                disabled={currentPage === totalPages}
-                            >
-                                Next
-                            </Button>
+                                <option value="">All Patients</option>
+                                {clinicPatients.map(p => (
+                                    <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>
+                                ))}
+                            </select>
                         </div>
+                        <DatePicker
+                            label="Start Date"
+                            value={filters.startDate ? new Date(filters.startDate) : null}
+                            onChange={(d) => setFilters(prev => ({...prev, startDate: d.toISOString().split('T')[0]}))}
+                        />
+                        <DatePicker
+                            label="End Date"
+                            value={filters.endDate ? new Date(filters.endDate) : null}
+                            onChange={(d) => setFilters(prev => ({...prev, endDate: d.toISOString().split('T')[0]}))}
+                        />
                     </div>
                 )}
-            </>
-        );
-    };
+           </div>
+        </Card>
 
-    return (
-        <DoctorDashboardLayout headerText="My Appointments">
-            <div className="p-6 md:p-8 font-inter">
-                <h1 className="text-3xl font-bold text-gray-800 mb-6">Your Appointments</h1>
-                
-                {/* Combined Tabs and Filters */}
-                <Card className="mb-6 shadow-md">
-                    <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between p-4 gap-4 border-b border-gray-200">
-                        {/* Tabs on the left */}
-                        <nav className="flex space-x-6">
-                            <button
-                                onClick={() => setActiveTab('active')}
-                                className={`whitespace-nowrap pb-2 border-b-2 font-medium text-sm transition-colors ${
-                                    activeTab === 'active'
-                                        ? 'border-blue-500 text-blue-600'
-                                        : 'border-transparent text-gray-500 hover:text-gray-700'
-                                }`}
-                            >
-                                Active
-                            </button>
-                            <button
-                                onClick={() => setActiveTab('completed')}
-                                className={`whitespace-nowrap pb-2 border-b-2 font-medium text-sm transition-colors ${
-                                    activeTab === 'completed'
-                                        ? 'border-blue-500 text-blue-600'
-                                        : 'border-transparent text-gray-500 hover:text-gray-700'
-                                }`}
-                            >
-                                Completed
-                            </button>
-                            <button
-                                onClick={() => setActiveTab('all')}
-                                className={`whitespace-nowrap pb-2 border-b-2 font-medium text-sm transition-colors ${
-                                    activeTab === 'all'
-                                        ? 'border-blue-500 text-blue-600'
-                                        : 'border-transparent text-gray-500 hover:text-gray-700'
-                                }`}
-                            >
-                                All
-                            </button>
-                        </nav>
-
-                        {/* Status filters on the right */}
-                        <div className="flex flex-wrap gap-2">
-                            <button
-                                onClick={() => toggleStatusFilter('scheduled')}
-                                className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
-                                    statusFilters.scheduled
-                                        ? 'bg-blue-100 text-blue-800 border-2 border-blue-500'
-                                        : 'bg-gray-100 text-gray-400 border-2 border-gray-300'
-                                }`}
-                            >
-                                Scheduled
-                            </button>
-                            <button
-                                onClick={() => toggleStatusFilter('inProgress')}
-                                className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
-                                    statusFilters.inProgress
-                                        ? 'bg-purple-100 text-purple-800 border-2 border-purple-500'
-                                        : 'bg-gray-100 text-gray-400 border-2 border-gray-300'
-                                }`}
-                            >
-                                In Progress
-                            </button>
-                            <button
-                                onClick={() => toggleStatusFilter('completed')}
-                                className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
-                                    statusFilters.completed
-                                        ? 'bg-green-100 text-green-800 border-2 border-green-500'
-                                        : 'bg-gray-100 text-gray-400 border-2 border-gray-300'
-                                }`}
-                            >
-                                Completed
-                            </button>
-                            <button
-                                onClick={() => toggleStatusFilter('cancelled')}
-                                className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
-                                    statusFilters.cancelled
-                                        ? 'bg-red-100 text-red-800 border-2 border-red-500'
-                                        : 'bg-gray-100 text-gray-400 border-2 border-gray-300'
-                                }`}
-                            >
-                                Cancelled
-                            </button>
-                            <button
-                                onClick={() => toggleStatusFilter('noShow')}
-                                className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
-                                    statusFilters.noShow
-                                        ? 'bg-yellow-100 text-yellow-800 border-2 border-yellow-500'
-                                        : 'bg-gray-100 text-gray-400 border-2 border-gray-300'
-                                }`}
-                            >
-                                No-Show
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* Collapsible additional filters */}
-                    <div className="p-4">
-                        <button
-                            onClick={() => setShowFilters(!showFilters)}
-                            className="flex items-center text-sm text-gray-600 hover:text-gray-800 font-medium"
-                        >
-                            <Filter className="h-4 w-4 mr-2" />
-                            {showFilters ? 'Hide' : 'Show'} Additional Filters
-                        </button>
-                        
-                        {showFilters && (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                                <div>
-                                    <label className="block text-xs font-medium text-gray-700 mb-1">Search</label>
-                                    <Input
-                                        id="search"
-                                        type="text"
-                                        placeholder="Search patient, clinic, reason..."
-                                        value={searchTerm}
-                                        onChange={e => setSearchTerm(e.target.value)}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-medium text-gray-700 mb-1">Date</label>
-                                    <Input
-                                        id="date-filter"
-                                        type="date"
-                                        value={dateFilter}
-                                        onChange={e => setDateFilter(e.target.value)}
-                                        placeholder="Filter by date"
-                                    />
-                                </div>
-                            </div>
-                        )}
-
-                        {(searchTerm || dateFilter) && (
-                            <div className="mt-4 flex gap-2">
-                                <button
-                                    onClick={() => {
-                                        setSearchTerm('');
-                                        setDateFilter('');
-                                    }}
-                                    className="px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
-                                >
-                                    Clear Additional Filters
-                                </button>
-                            </div>
-                        )}
-                    </div>
-                </Card>
-
-                {/* Appointments count */}
-                <div className="mb-4">
-                    <p className="text-sm text-gray-600">
-                        Showing {filteredAppointments.length} {activeTab === 'active' ? 'active' : activeTab === 'completed' ? 'completed' : ''} appointment{filteredAppointments.length !== 1 ? 's' : ''}
-                    </p>
+        {/* CONTENT */}
+        <div className="relative z-0">
+            {isLoadingData ? (
+                <div className="p-12 text-center text-gray-500">Loading schedule...</div>
+            ) : filteredList.length === 0 ? (
+                <div className="text-center py-12 bg-white rounded-lg shadow">
+                    <CalendarIcon className="h-12 w-12 mx-auto text-gray-300 mb-4" />
+                    <p className="text-gray-500">No appointments found matching your criteria.</p>
                 </div>
+            ) : viewMode === 'list' ? (
+                <ListView
+                    appointments={paginatedList}
+                    totalAppointments={filteredList.length}
+                    clinicTimezone={context?.timezone || 'UTC'}
+                    activeTab={activeTab}
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    itemsPerPage={itemsPerPage}
+                    onAppointmentClick={handleAppointmentClick}
+                    onPageChange={setCurrentPage}
+                />
+            ) : (
+                <CalendarView
+                    appointments={filteredList}
+                    weekDays={weekDays}
+                    earliestHour={earliestHour}
+                    latestHour={latestHour}
+                    clinicTimezone={context?.timezone || 'UTC'}
+                    calendarRef={calendarRef}
+                    onAppointmentClick={handleAppointmentClick}
+                    onNavigateWeek={(d) => setCurrentWeek(prev => {
+                        const n = new Date(prev); n.setDate(prev.getDate() + (d === "next" ? 7 : -7)); return n;
+                    })}
+                    onGoToToday={() => setCurrentWeek(new Date())}
+                    onExpandEarlier={() => setEarliestHour(h => Math.max(0, h - 1))}
+                    onExpandLater={() => setLatestHour(h => Math.min(24, h + 1))}
+                />
+            )}
+        </div>
+      </div>
 
-                {/* Appointments List */}
-                {renderContent()}
-            </div>
-        </DoctorDashboardLayout>
-    );
+      {/* EDIT MODAL */}
+      {isEditModalOpen && selectedAppointment && context && (
+        <EditAppointmentModal
+            appointment={selectedAppointment}
+            onClose={() => {
+                setIsEditModalOpen(false);
+                setSelectedAppointment(null);
+            }}
+            onRefreshList={fetchAppointments}
+            
+            // Dynamic resolution for "All Clinics" Mode:
+            // Pass the specific appointment's clinic ID, not the generic -1
+            clinicId={context.clinicId === -1 ? ((selectedAppointment as any).clinic_id) : context.clinicId}
+            
+            clinicName={
+                associatedClinics.find(c => 
+                    c.id === (context.clinicId === -1 ? (selectedAppointment as any).clinic_id : context.clinicId)
+                )?.name || 'Medical Clinic'
+            }
+            
+            clinicTimezone={context.timezone}
+            user={user}
+            role={context.role}
+        />
+      )}
+    </DoctorDashboardLayout>
+  );
 }

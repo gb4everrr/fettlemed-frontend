@@ -2,7 +2,7 @@
 
 import React, { useEffect } from 'react';
 import { useAppSelector } from '@/lib/hooks';
-import { generatePalette } from '@/lib/utils/colorUtils'; // Ensure you created this helper file from the previous step
+import { generatePalette } from '@/lib/utils/colorUtils'; 
 
 export default function ClinicThemeProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAppSelector((state) => state.auth);

@@ -79,6 +79,9 @@ export const authSlice = createSlice({
           localStorage.setItem('token', action.payload.token);
       }
     },
+    setActivePermissions: (state, action: PayloadAction<string[]>) => {
+            state.activePermissions = action.payload;
+        },
     authFailure: (state, action: PayloadAction<string | null>) => {
       state.isLoading = false;
       state.isAuthenticated = false;
@@ -149,7 +152,8 @@ export const {
   authFailure, 
   logout, 
   updateClinicSettings,
-  switchClinic // Export the new action
+  switchClinic,
+  setActivePermissions // Export the new action
 } = authSlice.actions;
 
 export default authSlice.reducer;

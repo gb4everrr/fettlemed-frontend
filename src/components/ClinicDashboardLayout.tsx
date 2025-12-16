@@ -84,7 +84,7 @@ const ClinicDashboardLayout = ({ children }: { children: React.ReactNode }) => {
           >
             <Menu className="h-6 w-6" />
           </button>
-          <Image src="/images/Fettle Universe.png" alt="Fettlemed Logo" width={32} height={32} className="rounded-sm ml-2 md:ml-0" />
+          <Image src="/images/F.png" alt="Fettlemed Logo" width={30} height={30} className="rounded-sm ml-2 md:ml-0 pr-1" />
           <span className="ml-2 text-xl text-[var(--color-text-dark)] font-inter">
             <Link href="/clinic-admin/dashboard/" passHref> 
               {clinicName}

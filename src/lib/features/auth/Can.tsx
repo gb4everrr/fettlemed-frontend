@@ -24,7 +24,7 @@ export type Permission =
   | 'view_all_schedule'
   | 'manage_appointments'
   | 'view_own_schedule'
-  | 'view_assigned_patients'
+  | 'view_assigned_patients' 
   | 'create_prescription'
   | 'view_prescription'
   | 'manage_medical_records'

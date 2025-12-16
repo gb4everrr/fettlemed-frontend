@@ -14,6 +14,7 @@ export interface Appointment {
   patient?: { id: number; first_name: string; last_name: string };
   doctor?: { id: number; first_name: string; last_name: string };
   invoice_id?: number | null; 
+  clinic: any;
 }
 
 export interface ClinicDoctor {
@@ -27,6 +28,14 @@ export interface ClinicPatient {
   first_name: string;
   last_name: string;
   global_patient_id?: number | null;
+  email?: string | null;
+  phone_number?: string | null;
+  address?: string | null;
+  emergency_contact?: string | null;
+  date_of_birth?: string | null;
+  gender?: string | null;
+  allergies?: string[];
+  chronic_conditions?: string[];
 }
 
 export interface AvailableSlot {

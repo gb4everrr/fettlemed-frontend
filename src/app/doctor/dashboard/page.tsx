@@ -1,149 +1,184 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAppSelector } from '@/lib/hooks';
-import Link from 'next/link';
 import api from '@/services/api';
-
-import Card from '@/components/ui/Card';
-import Button from '@/components/ui/Button';
 import DoctorDashboardLayout from '@/components/DoctorDashboardLayout';
+import { Loader2, Activity } from 'lucide-react';
 
-interface ClinicInfo {
-  id: number;
-  name: string;
-  address: string;
-}
+import { 
+    QuickAccessWidget, 
+    PatientAlertsWidget, 
+    TodaysScheduleWidget, 
+    InsightsWidget, 
+    RevenueWidget,
+    TasksWidget
+} from '@/components/doctor/widgets/DashboardWidgets';
 
-interface DoctorInfo {
-    firstName: string;
-    lastName: string;
-}
-
-interface DashboardStats {
-  clinics: ClinicInfo[];
-  upcomingAppointmentsCount: number;
-  uniquePatientsCount: number;
-  doctor: DoctorInfo; 
-}
+import { AddNoteModal } from '@/components/doctor/modals/AddNoteModal';
+import { CreatePrescriptionModal } from '@/components/doctor/modals/CreatePrescriptionModal';
+// --- IMPORT THE EDIT APPOINTMENT MODAL ---
+import { EditAppointmentModal } from '@/components/doctor/modals/EditAppointmentModal'; 
 
 export default function DoctorDashboardPage() {
-    const { user } = useAppSelector((state) => state.auth);
-    const [stats, setStats] = useState<DashboardStats | null>(null);
+    const { user } = useAppSelector((state: any) => state.auth);
+    
+    // --- State ---
     const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const [appointments, setAppointments] = useState<any[]>([]);
+    const [patients, setPatients] = useState<any[]>([]);
+    const [invoices, setInvoices] = useState<any[]>([]);
+    
+    // UI State
+    const [activeModal, setActiveModal] = useState<'note' | 'rx' | 'lab' | 'edit_appointment' | null>(null);
+    const [selectedAppointment, setSelectedAppointment] = useState<any>(null);
+
+    // --- Mock Tasks Data ---
+    const tasks = [
+        { id: 1, task: 'Review lab results for J. Doe', priority: 'high', done: false },
+        { id: 2, task: 'Sign pending prescriptions', priority: 'medium', done: false },
+        { id: 3, task: 'Follow up with Sarah Smith', priority: 'low', done: true }
+    ];
+
+    // --- Fetch Real Data ---
+    const fetchAllData = async () => {
+        if (!user) return;
+        setIsLoading(true);
+        try {
+            const [apptRes, patRes, invRes] = await Promise.all([
+                api.get('/doctor/my-appointments-details'),
+                api.get('/doctor/my-patients-details'),
+                api.get('/doctor/my-invoices')
+            ]);
+
+            setAppointments(Array.isArray(apptRes.data) ? apptRes.data : []);
+            setPatients(Array.isArray(patRes.data) ? patRes.data : []);
+            setInvoices(Array.isArray(invRes.data) ? invRes.data : []);
+
+        } catch (err) {
+            console.error("Dashboard Data Fetch Error:", err);
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
     useEffect(() => {
-        const fetchDashboardData = async () => {
-            try {
-                const { data } = await api.get<DashboardStats>('/doctor/dashboard-stats');
-                setStats(data);
-            } catch (err) {
-                console.error("Failed to fetch doctor dashboard stats:", err);
-                setError("Could not load dashboard data. Please try again later.");
-            } finally {
-                setIsLoading(false);
-            }
-        };
-
-        if (user) {
-            fetchDashboardData();
-        }
+        fetchAllData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [user]);
 
-    if (!user) {
-        return null;
-    }
+    // --- Handlers ---
+    const handleEditAppointment = (appt: any) => {
+        setSelectedAppointment(appt);
+        setActiveModal('edit_appointment');
+    };
+
+    // --- Metrics ---
+
+    // 1. Today's Schedule (Strict Date Logic)
+    const todaysSchedule = useMemo(() => {
+        if (!appointments.length) return [];
+        const today = new Date();
+        
+        return appointments.filter(appt => {
+            if (!appt.datetime_start) return false;
+            const apptDate = new Date(appt.datetime_start);
+            const isSameDay = 
+                apptDate.getDate() === today.getDate() &&
+                apptDate.getMonth() === today.getMonth() &&
+                apptDate.getFullYear() === today.getFullYear();
+            return isSameDay;
+        }).sort((a, b) => new Date(a.datetime_start).getTime() - new Date(b.datetime_start).getTime());
+    }, [appointments]);
+
+    // 2. Total Revenue
+    const totalRevenue = useMemo(() => {
+        return invoices.reduce((sum, inv) => {
+            const amt = parseFloat(inv.total_amount || inv.amount || 0);
+            return sum + (isNaN(amt) ? 0 : amt);
+        }, 0);
+    }, [invoices]);
+
+    const totalPatientsCount = patients.length;
+    const totalApptsCount = appointments.length;
 
     if (isLoading) {
         return (
             <DoctorDashboardLayout>
-                <div className="p-6 md:p-8">
-                    <p className="text-gray-600">Loading dashboard...</p>
+                <div className="flex items-center justify-center min-h-screen">
+                    <Loader2 className="h-8 w-8 animate-spin text-[var(--color-primary-brand)]" />
                 </div>
             </DoctorDashboardLayout>
         );
     }
-    
-    if (error) {
-        return (
-            <DoctorDashboardLayout>
-                <div className="p-6 md:p-8">
-                    <p className="text-red-500">{error}</p>
-                </div>
-            </DoctorDashboardLayout>
-        );
-    }
-
-    // Determine the name from the API response and format the header text
-    const doctorName = stats?.doctor?.lastName || user.lastName;
-    const headerText = `Welcome, Dr. ${doctorName}!`;
 
     return (
-        // Pass the formatted header text up to the layout component
-        <DoctorDashboardLayout headerText={headerText}>
-            <div className="p-6 md:p-8">
-                {/* This h1 is now a simple title, as the welcome message is in the navbar */}
-                <h1 className="text-3xl font-bold text-gray-800 mb-6 font-inter">
-                    Dashboard Overview
-                </h1>
-                <p className="text-gray-500 text-sm font-inter mb-8">
-                    Here's a summary of your activities across all clinics.
-                </p>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <Card padding="md" className="flex flex-col items-start bg-blue-50">
-                        <h3 className="text-lg font-semibold text-800 mb-2">Upcoming Appointments</h3>
-                        <p className="text-4xl font-bold text-900">{stats?.upcomingAppointmentsCount ?? 0}</p>
-                        <p className="text-700 text-sm mt-1">Total scheduled appointments.</p>
-                        <Link href="/doctor/dashboard/appointments" passHref>
-                            <Button variant="ghost" size="sm" className="mt-4 text-600 hover:bg-blue-100">
-                                View Appointments &rarr;
-                            </Button>
-                        </Link>
-                    </Card>
-                    <Card padding="md" className="flex flex-col items-start bg-green-50">
-                        <h3 className="text-lg font-semibold text-800 mb-2">My Patients</h3>
-                        <p className="text-4xl font-bold text-900">{stats?.uniquePatientsCount ?? 0}</p>
-                        <p className="text-700 text-sm mt-1">Unique patients in upcoming schedule.</p>
-                         <Link href="/doctor/dashboard/patients" passHref>
-                            <Button variant="ghost" size="sm" className="mt-4 text-600 hover:bg-green-100">
-                                View Patients &rarr;
-                            </Button>
-                        </Link>
-                    </Card>
-                    <Card padding="md" className="flex flex-col items-start bg-purple-50">
-                         <h3 className="text-lg font-semibold text-800 mb-2">My Clinics</h3>
-                        <p className="text-4xl font-bold text-900">{stats?.clinics.length ?? 0}</p>
-                        <p className="text-700 text-sm mt-1">Actively associated clinics.</p>
-                        <Link href="/doctor/dashboard/clinics" passHref>
-                             <Button variant="ghost" size="sm" className="mt-4 text-600 hover:bg-purple-100">
-                                View Clinics &rarr;
-                            </Button>
-                        </Link>
-                    </Card>
-                </div>
+        <DoctorDashboardLayout headerText={`Good Morning, Dr. ${user?.last_name || 'Doctor'}`}>
+            <div className="p-6 md:p-8 font-inter max-w-[1600px]">
                 
-                <div className="mt-10">
-                    <h2 className="text-2xl font-bold text-gray-700 mb-4">Your Associated Clinics</h2>
-                    {stats && stats.clinics.length > 0 ? (
-                        <div className="space-y-4">
-                            {stats.clinics.map(clinic => (
-                                <Card key={clinic.id} padding="md" className="flex justify-between items-center">
-                                    <div>
-                                        <p className="font-semibold text-gray-800">{clinic.name}</p>
-                                        <p className="text-sm text-gray-500">{clinic.address}</p>
-                                    </div>
-                                    <Button variant="outline" size="sm">View Details</Button>
-                                </Card>
-                            ))}
+                {/* 3 Column Grid */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    
+                    {/* LEFT COLUMN: Actions & Alerts */}
+                    <div className="lg:col-span-1 flex flex-col gap-6">
+                        <div className="flex-shrink-0">
+                            <QuickAccessWidget 
+                                onAddNote={() => setActiveModal('note')}
+                                onAddRx={() => setActiveModal('rx')}
+                                onAddLab={() => setActiveModal('lab')}
+                            />
                         </div>
-                    ) : (
-                        <p className="text-gray-500">You are not currently associated with any clinics.</p>
-                    )}
+                        <div className="flex-1 min-h-[300px]">
+                            <PatientAlertsWidget alerts={[]} />
+                        </div>
+                    </div>
+
+                    {/* MIDDLE COLUMN: Schedule (Interactable) */}
+                    <div className="lg:col-span-1 flex flex-col h-full min-h-[500px]">
+                        <TodaysScheduleWidget 
+                            appointments={todaysSchedule} 
+                            onAppointmentClick={handleEditAppointment} 
+                        />
+                    </div>
+
+                    {/* RIGHT COLUMN: Stats & Tasks */}
+                    <div className="lg:col-span-1 flex flex-col gap-6">
+                        <InsightsWidget totalPatients={totalPatientsCount} totalAppts={totalApptsCount} />
+                        <RevenueWidget totalRevenue={totalRevenue} />
+                        <div className="flex-1">
+                            <TasksWidget tasks={tasks} />
+                        </div>
+                    </div>
                 </div>
             </div>
+
+            {/* --- MODALS --- */}
+            {activeModal === 'note' && <AddNoteModal onClose={() => setActiveModal(null)} />}
+            {activeModal === 'rx' && <CreatePrescriptionModal onClose={() => setActiveModal(null)} />}
+            
+            {/* Edit Appointment Modal */}
+            {activeModal === 'edit_appointment' && selectedAppointment && (
+                <EditAppointmentModal
+                    appointment={selectedAppointment}
+                    onClose={() => setActiveModal(null)}
+                    onRefreshList={fetchAllData}
+                    clinicId={selectedAppointment.clinic_id}
+                    clinicName={selectedAppointment.clinic?.name || 'Clinic'}
+                    clinicTimezone={selectedAppointment.clinic?.timezone || 'UTC'}
+                    user={user}
+                    role="doctor"
+                />
+            )}
+            
+            {activeModal === 'lab' && (
+                <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setActiveModal(null)}>
+                     <div className="bg-white p-8 rounded-xl shadow-xl max-w-sm text-center border border-gray-100">
+                        <Activity className="h-12 w-12 text-[var(--color-primary-brand)] mx-auto mb-4" />
+                        <h3 className="text-lg font-bold text-gray-800">Lab Request</h3>
+                        <p className="text-gray-500 mt-2">This feature is currently under development.</p>
+                     </div>
+                </div>
+            )}
         </DoctorDashboardLayout>
     );
 }
-
