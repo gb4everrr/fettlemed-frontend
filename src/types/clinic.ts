@@ -14,7 +14,7 @@ export interface Appointment {
   patient?: { id: number; first_name: string; last_name: string };
   doctor?: { id: number; first_name: string; last_name: string };
   invoice_id?: number | null; 
-  clinic: any;
+  clinic?: any;
 }
 
 export interface ClinicDoctor {
