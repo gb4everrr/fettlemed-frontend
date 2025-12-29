@@ -4,14 +4,14 @@ import React from 'react';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import { Appointment } from '@/types/clinic';
-import { Calendar, Clock, Edit, RefreshCw, MapPin } from 'lucide-react'; // Added MapPin
-import { formatDateTime } from '@/lib/utils/datetime';
+import { Calendar, Clock, Edit, RefreshCw, MapPin } from 'lucide-react';
+// REMOVED: formatDateTime (We now handle formatting locally to force UTC)
 import { isRescheduled, getRescheduledFromTime } from '@/lib/utils/appointments';
 
 interface ListViewProps {
   appointments: Appointment[];
   totalAppointments: number;
-  clinicTimezone: string;
+  clinicTimezone: string; // Kept for prop interface, but we force UTC display
   activeTab: string;
   currentPage: number;
   totalPages: number;
@@ -19,6 +19,20 @@ interface ListViewProps {
   onAppointmentClick: (appointment: Appointment) => void;
   onPageChange: (page: number) => void;
 }
+
+// 1. NEW: Local formatter forcing UTC
+const formatClinicTime = (dateString: string | Date) => {
+  const date = new Date(dateString);
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: 'UTC', // FORCE UTC
+  }).format(date);
+};
 
 export default function ListView({
   appointments,
@@ -68,7 +82,7 @@ export default function ListView({
                           </span>
                         )}
 
-                        {/* Clinic Badge - NEW */}
+                        {/* Clinic Badge */}
                         {appointment.clinic && (
                            <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-gray-50 text-gray-600 border border-gray-200">
                              <MapPin className="h-3 w-3 mr-1 text-gray-400" />
@@ -80,7 +94,8 @@ export default function ListView({
                       <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <h3 className="text-lg font-bold text-gray-800">Appointment Time</h3>
-                          <p className="text-sm text-gray-600 font-medium">{formatDateTime(appointment.datetime_start, clinicTimezone)}</p>
+                          {/* 2. REPLACED: formatDateTime with formatClinicTime */}
+                          <p className="text-sm text-gray-600 font-medium">{formatClinicTime(appointment.datetime_start)}</p>
                           {rescheduled && originalTime && (<p className="text-xs text-amber-600 mt-1 flex items-center"><RefreshCw className="h-3 w-3 mr-1" />Originally scheduled: {originalTime}</p>)}
                         </div>
                         

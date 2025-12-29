@@ -31,6 +31,7 @@ import DatePicker from '@/components/ui/DatePicker';
 import { NewAppointmentModal } from '@/components/clinic/modals/NewAppointmentModal';
 import { EditPatientModal } from '@/components/clinic/modals/EditPatientModal';
 import { EditAppointmentModal } from '@/components/clinic/modals/EditAppointmentModal'; 
+import { AllergiesCard } from '@/components/clinic/widgets/AllergiesCard';
 
 // --- Interfaces ---
 interface ClinicPatient {
@@ -410,14 +411,12 @@ export default function PatientProfilePage({ params }: { params: Promise<{ id: s
                 <h3 className="text-lg font-bold text-gray-900">Allergies</h3>
               </div>
               <div className="space-y-2">
-                {patient.allergies && patient.allergies.length > 0 ? (
-                   patient.allergies.map((a, i) => <p key={i} className="text-gray-600">{a}</p>)
-                ) : (
-                   <>
-                      <p className="text-gray-600">No known drug allergies</p>
-                      <p className="text-xs text-gray-400 mt-2">(Data pending)</p>
-                   </>
-                )}
+                <div className="h-96">
+                  <AllergiesCard 
+                      patientId={patientId} 
+                      clinicId={parseInt(clinicId)} 
+                  />
+              </div>
               </div>
             </Card>
 

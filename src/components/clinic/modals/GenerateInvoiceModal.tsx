@@ -22,7 +22,7 @@ import {
   Stethoscope, 
   Clock,
   ArrowLeft,
-  Loader2 // Import loader
+  Loader2 
 } from 'lucide-react';
 import { Appointment, ClinicService } from '@/types/clinic';
 import { formatDateTime } from '@/lib/utils/datetime';
@@ -53,14 +53,16 @@ interface GenerateInvoiceViewProps {
   appointment: Appointment;
   clinicId: number;
   clinicName: string;
-  onSetView: (view: 'details') => void; // Function to go "back"
+  onSetView: (view: 'details') => void; 
 }
 
+// UPDATED: Added { timeZone: 'UTC' } to prevent local timezone conversion
 const formatDate = (date: Date) => {
   return date.toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'long',
-    day: 'numeric'
+    day: 'numeric',
+    timeZone: 'UTC'
   });
 };
 
@@ -79,7 +81,7 @@ export function GenerateInvoiceView({
   const [availableServices, setAvailableServices] = useState<ClinicService[]>([]);
   const [selectedServices, setSelectedServices] = useState<SelectedService[]>([]);
   
-  const [isLoading, setIsLoading] = useState(true); // Now used for initial load
+  const [isLoading, setIsLoading] = useState(true); 
   const [formError, setFormError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   
@@ -88,8 +90,6 @@ export function GenerateInvoiceView({
   const [invoiceData, setInvoiceData] = useState<GeneratedInvoice | null>(null);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
 
-  // --- UPDATED useEffect ---
-  // Fetches services AND an existing invoice if appointment.invoice_id is present
   useEffect(() => {
     let isMounted = true;
     const loadData = async () => {
@@ -97,47 +97,51 @@ export function GenerateInvoiceView({
         setIsLoading(true);
         setFormError(null);
         
-        // 1. Always fetch all available services for the dropdown
         const servicesResponse = await api.get('/clinic-invoice/service/list', {
           params: { clinic_id: clinicId },
         });
         if (!isMounted) return;
         setAvailableServices(servicesResponse.data);
 
-        // 2. If an invoice_id exists, fetch its details
         if (appointment.invoice_id) {
-          const invoiceResponse = await api.get(`/clinic-invoice/invoice/${appointment.invoice_id}`);
+          const invoiceResponse = await api.get(`/clinic-invoice/invoice/${appointment.invoice_id}`, {
+            params: { clinic_id: clinicId }
+          });
           if (!isMounted) return;
           
-          const { invoice, services: invoiceServices } = invoiceResponse.data; // e.g., [{service_id: 1, price: 500}]
+          const invoiceObj = invoiceResponse.data;
+          
+          if (!invoiceObj) {
+            throw new Error("Invoice data is missing from the server response.");
+          }
 
-          // 3. Map the invoice services to the full service details
+          const invoiceServices = invoiceObj.services || [];
+
           const mappedServices: SelectedService[] = invoiceServices.map((invSvc: any) => {
             const serviceDetail = servicesResponse.data.find((s: ClinicService) => s.id === invSvc.service_id);
             return {
               service_id: invSvc.service_id,
-              name: serviceDetail?.name || 'Unknown Service', 
-              price: invSvc.price, // Use the price from the invoice
+              name: serviceDetail?.name || invSvc.service?.name || 'Unknown Service', 
+              price: invSvc.price, 
             };
           });
           
           setSelectedServices(mappedServices);
 
-          // 4. Set the invoice data for preview
           const patientName = `${appointment.patient?.first_name || ''} ${appointment.patient?.last_name || ''}`;
+          
           setInvoiceData({
-            id: invoice.id,
-            invoiceNumber: `INV-${invoice.id}`, 
-            date: formatDate(new Date(invoice.invoice_date)),
+            id: invoiceObj.id,
+            invoiceNumber: `INV-${invoiceObj.id}`, 
+            date: formatDate(new Date(invoiceObj.invoice_date)),
             patientName: patientName,
             clinicName: clinicName,
             services: mappedServices,
-            totalAmount: invoice.total_amount,
+            totalAmount: invoiceObj.total_amount,
             appointmentId: appointment.id,
             clinicPatientId: appointment.clinic_patient_id,
           });
 
-          // 5. Go straight to preview mode
           setIsPreviewMode(true);
         }
       } catch (err: any) {
@@ -158,7 +162,6 @@ export function GenerateInvoiceView({
       isMounted = false;
     };
   }, [appointment.invoice_id, appointment.patient, clinicId, clinicName]);
-  // --- END new useEffect ---
 
 
   const handleServiceSelect = (serviceId: number) => {
@@ -272,6 +275,9 @@ export function GenerateInvoiceView({
   const handleDownloadPDF = async () => {
     if (!invoiceData) return;
     try {
+      // UPDATED: Use UTC for the 'Generated on' timestamp
+      const generatedDate = new Date().toLocaleString('en-US', { timeZone: 'UTC' });
+
       const invoiceElement = document.createElement('div');
       invoiceElement.innerHTML = `
         <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; padding: 20px; background: white; width: 800px;">
@@ -290,7 +296,7 @@ export function GenerateInvoiceView({
             </tbody>
           </table>
           <div style="text-align: right; margin-top: 30px;"><div style="font-size: 20px; font-weight: bold; color: #2563eb; border-top: 2px solid #2563eb; padding-top: 15px; margin-top: 15px;"><div style="display: flex; justify-content: space-between; padding: 10px 0;"><span>Total Amount:</span><span>Rs. ${invoiceData.totalAmount.toFixed(2)}</span></div></div></div>
-          <div style="text-align: center; margin-top: 50px; padding-top: 20px; border-top: 1px solid #e5e7eb; color: #6b7280;"><p>Thank you for choosing ${invoiceData.clinicName}</p><p>Generated on ${new Date().toLocaleString()}</p></div>
+          <div style="text-align: center; margin-top: 50px; padding-top: 20px; border-top: 1px solid #e5e7eb; color: #6b7280;"><p>Thank you for choosing ${invoiceData.clinicName}</p><p>Generated on ${generatedDate}</p></div>
         </div>
       `;
       invoiceElement.style.position = 'absolute';

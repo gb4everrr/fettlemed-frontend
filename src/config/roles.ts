@@ -24,12 +24,12 @@ export const ROLES: Record<string, RoleDefinition> = {
   
   DOCTOR_VISITING: { 
     inherits: [], 
-    permissions: ['view_own_schedule', 'view_assigned_patients', 'create_prescription', 'view_prescription', 'manage_medical_records', 'manage_availability', 'view_patient_history', 'view_clinic_details'] 
+    permissions: ['view_own_schedule', 'view_assigned_patients', 'create_prescription', 'view_prescription', 'manage_medical_records', 'manage_availability', 'view_patient_history', 'view_clinic_details','manage_medical_records', 'view_patient_history'] 
   },
 
   // --- STAFF ---
   RECEPTIONIST: { inherits: [], permissions: ['manage_patients', 'manage_appointments', 'view_all_schedule', 'manage_invoices', 'view_services', 'manage_vitals_entry'] },
-  NURSE: { inherits: [], permissions: ['manage_vitals_entry', 'view_patient_history', 'manage_medical_records', 'view_all_schedule'] }
+  NURSE: { inherits: [], permissions: ['manage_vitals_entry', 'view_patient_history', 'manage_medical_records', 'view_all_schedule','manage_medical_records', 'view_patient_history'] }
 };
 
 // Helper to flatten permissions (handling inheritance)

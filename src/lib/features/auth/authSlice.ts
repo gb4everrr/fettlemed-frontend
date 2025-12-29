@@ -1,5 +1,6 @@
 // src/lib/features/auth/authSlice.ts
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
+import { REHYDRATE } from 'redux-persist';
 
 // Define the Clinic interface that matches the data from the backend
 interface Clinic {
@@ -143,7 +144,48 @@ export const authSlice = createSlice({
         }
       }
     },
-  },
+  },extraReducers: (builder) => {
+  builder.addCase(REHYDRATE, (state, action: any) => {
+    console.log('REHYDRATE action triggered');
+    console.log('action.payload:', action.payload);
+    
+    // When Redux rehydrates from storage, recalculate activePermissions
+    if (action.payload?.auth) {
+      const rehydratedAuth = action.payload.auth;
+      console.log('rehydratedAuth:', rehydratedAuth);
+      console.log('rehydratedAuth.user:', rehydratedAuth.user);
+      console.log('rehydratedAuth.user?.clinics:', rehydratedAuth.user?.clinics);
+      
+      // Restore the auth state
+      Object.assign(state, rehydratedAuth);
+      
+      // CRITICAL: Recalculate activePermissions from the clinic data
+      if (state.user?.clinics && state.user.clinics.length > 0) {
+        console.log('Found clinics:', state.user.clinics);
+        
+        // If we have an activeClinicId, use that clinic's permissions
+        if (state.activeClinicId) {
+          const activeClinic = state.user.clinics.find(c => c.id === state.activeClinicId);
+          console.log('Active clinic:', activeClinic);
+          if (activeClinic) {
+            state.activePermissions = activeClinic.permissions || [];
+            console.log('Set activePermissions to:', state.activePermissions);
+          }
+        } else {
+          // Otherwise, default to the first clinic
+          const defaultClinic = state.user.clinics[0];
+          state.activeClinicId = defaultClinic.id;
+          state.activePermissions = defaultClinic.permissions || [];
+          console.log('Set default clinic permissions:', state.activePermissions);
+        }
+      } else {
+        console.log('No clinics found in user data');
+      }
+    } else {
+      console.log('No auth payload in REHYDRATE action');
+    }
+  });
+},
 });
 
 export const { 

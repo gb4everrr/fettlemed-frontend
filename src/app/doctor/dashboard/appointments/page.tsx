@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useAppSelector, useAppDispatch } from '@/lib/hooks';
 import api from '@/services/api';
+import Button from '@/components/ui/Button';
 
 // UI Components
 import DoctorDashboardLayout from '@/components/DoctorDashboardLayout';
@@ -13,7 +14,8 @@ import {
   Filter, 
   List, 
   CalendarDays, 
-  MapPin 
+  MapPin,
+  Plus
 } from 'lucide-react';
 import { 
   FaStethoscope, 
@@ -29,6 +31,7 @@ import { getWeekDays } from '@/lib/utils/datetime';
 
 // Modal
 import { EditAppointmentModal } from '@/components/doctor/modals/EditAppointmentModal'; 
+import { DoctorNewAppointmentModal } from '@/components/doctor/modals/DoctorNewAppointmentModal';
 
 // Helpers
 import { getPermissionsForRole } from '@/config/roles'; 
@@ -101,6 +104,19 @@ export default function DoctorAppointmentsPage() {
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
+  const [isNewAppointmentModalOpen, setIsNewAppointmentModalOpen] = useState(false);
+
+const canBookAppointments = useMemo(() => {
+  if (selectedClinicId === -1) {
+    // "All Clinics": Can book if user is Privileged in AT LEAST ONE clinic
+    return associatedClinics.some(c => PRIVILEGED_ROLES.includes(c.role?.toUpperCase() || ''));
+  } else {
+    // "Specific Clinic": Can book only if Privileged in THIS clinic
+    const current = associatedClinics.find(c => c.id === selectedClinicId);
+    return current ? PRIVILEGED_ROLES.includes(current.role?.toUpperCase() || '') : false;
+  }
+}, [selectedClinicId, associatedClinics]);
+
   // Calendar Refs
   const calendarRef = useRef<HTMLDivElement | null>(null);
   const [earliestHour, setEarliestHour] = useState<number>(8);
@@ -138,6 +154,8 @@ export default function DoctorAppointmentsPage() {
     };
     fetchClinics();
   }, [user]);
+
+  
 
   // --- 3. PERMISSION & CONTEXT LOGIC ---
   
@@ -200,99 +218,124 @@ export default function DoctorAppointmentsPage() {
 
   }, [selectedClinicId, associatedClinics, dispatch, canAccessClinicView, viewScope]);
 
+  useEffect(() => {
+  if (selectedClinicId === -1 || !canAccessClinicView) {
+    setClinicDoctors([]);
+    setClinicPatients([]);
+    return;
+  }
 
-  // --- 4. DATA FETCHING (Hybrid Strategy) ---
-  const fetchAppointments = async () => {
-    if (associatedClinics.length === 0) return;
-    
-    setIsLoadingData(true);
-    let finalData: Appointment[] = [];
-
+  const fetchClinicFilters = async () => {
     try {
-        // A. ALWAYS fetch "My Appointments" (Global Personal Data)
-        const myApptsResponse = await api.get('/doctor/my-appointments-details');
-        
-        // FIX FOR MY VIEW: Inject the current User as the Doctor if missing
-        const myAppts = myApptsResponse.data.map((appt: any) => ({
-            ...appt,
-            // If API doesn't return doctor object, use the logged-in user profile
-            doctor: appt.doctor || { 
-                id: user.id, 
-                first_name: user.first_name, 
-                last_name: user.last_name 
-            }
-        }));
-
-        // B. Handle Scope Logic
-        if (viewScope === 'my') {
-            // Filter "My Global List" by selected context
-            finalData = myAppts.filter((a: Appointment) => 
-                selectedClinicId === -1 ? true : a.clinic_id === selectedClinicId
-            );
-        } 
-        else if (viewScope === 'clinic') {
-            // --- HYBRID FETCH ---
-            const targetClinics = selectedClinicId === -1 
-                ? associatedClinics 
-                : associatedClinics.filter(c => c.id === selectedClinicId);
-
-            const fetchPromises = targetClinics.map(async (clinic) => {
-                const isPrivileged = PRIVILEGED_ROLES.includes(clinic.role);
-
-                if (isPrivileged) {
-                    // 1. Has Permission -> Fetch Full Schedule from Admin API
-                    try {
-                        const res = await api.get('/appointments', { 
-                            params: { 
-                                clinic_id: clinic.id,
-                                startDate: filters.startDate,
-                                endDate: filters.endDate
-                            } 
-                        });
-                        
-                        // FIX FOR CLINIC VIEW: Inject the Clinic details
-                        // The admin API is scoped to a clinic, so it often omits the clinic object.
-                        // We manually attach it here so the UI can display it.
-                        return res.data.map((appt: any) => ({
-                            ...appt,
-                            clinic: appt.clinic || {
-                                id: clinic.id,
-                                name: clinic.name,
-                                timezone: clinic.timezone
-                            }
-                        }));
-
-                    } catch (e) {
-                        console.warn(`Schedule fetch failed for ${clinic.name}`, e);
-                        return [];
-                    }
-                } else {
-                    // 2. No Permission (Visiting) -> Fallback to My Appointments for this clinic
-                    return myAppts.filter((a: Appointment) => a.clinic_id === clinic.id);
-                }
-            });
-
-            const results = await Promise.all(fetchPromises);
-            finalData = results.flat();
-        }
-
-        // C. Deduplication & Sorting
-        const uniqueMap = new Map();
-        finalData.forEach(item => uniqueMap.set(item.id, item));
-        const uniqueData = Array.from(uniqueMap.values()) as Appointment[];
-
-        const sorted = uniqueData.sort((a, b) => 
-            new Date(a.datetime_start).getTime() - new Date(b.datetime_start).getTime()
-        );
-
-        setAppointments(sorted);
-
-    } catch (error) {
-        console.error("Error fetching appointments:", error);
-    } finally {
-        setIsLoadingData(false);
+      const [doctorsRes, patientsRes] = await Promise.all([
+        api.get('/clinic-user/clinic-doctor', { params: { clinic_id: selectedClinicId } }),
+        api.get('/clinic-user/clinic-patient', { params: { clinic_id: selectedClinicId } })
+      ]);
+      
+      setClinicDoctors(doctorsRes.data || []);
+      setClinicPatients(patientsRes.data || []);
+    } catch (err) {
+      console.error('Failed to fetch filter options:', err);
+      setClinicDoctors([]);
+      setClinicPatients([]);
     }
   };
+
+  fetchClinicFilters();
+}, [selectedClinicId, canAccessClinicView]);
+
+
+  // --- 4. DATA FETCHING (Hybrid Strategy) ---
+const fetchAppointments = async () => {
+  if (associatedClinics.length === 0) return;
+  
+  setIsLoadingData(true);
+  let finalData: Appointment[] = [];
+
+  try {
+      // A. ALWAYS fetch "My Appointments" (Global Personal Data)
+      const myApptsParams: any = {};
+      if (filters.startDate) myApptsParams.startDate = filters.startDate;
+      if (filters.endDate) myApptsParams.endDate = filters.endDate;
+      
+      const myApptsResponse = await api.get('/doctor/my-appointments-details', { params: myApptsParams });
+      
+      // FIX FOR MY VIEW: Inject the current User as the Doctor if missing
+      const myAppts = myApptsResponse.data.map((appt: any) => ({
+          ...appt,
+          doctor: appt.doctor || { 
+              id: user.id, 
+              first_name: user.first_name, 
+              last_name: user.last_name 
+          }
+      }));
+
+      // B. Handle Scope Logic
+      if (viewScope === 'my') {
+          // Filter "My Global List" by selected context
+          finalData = myAppts.filter((a: Appointment) => 
+              selectedClinicId === -1 ? true : a.clinic_id === selectedClinicId
+          );
+      } 
+      else if (viewScope === 'clinic') {
+          // --- HYBRID FETCH ---
+          const targetClinics = selectedClinicId === -1 
+              ? associatedClinics 
+              : associatedClinics.filter(c => c.id === selectedClinicId);
+
+          const fetchPromises = targetClinics.map(async (clinic) => {
+              const isPrivileged = PRIVILEGED_ROLES.includes(clinic.role);
+
+              if (isPrivileged) {
+                  // 1. Has Permission -> Fetch Full Schedule from Admin API
+                  try {
+                      const params: any = { clinic_id: clinic.id };
+                      if (filters.startDate) params.startDate = filters.startDate;
+                      if (filters.endDate) params.endDate = filters.endDate;
+                      if (filters.clinic_doctor_id) params.clinic_doctor_id = filters.clinic_doctor_id;
+                      
+                      const res = await api.get('/appointments', { params });
+                      
+                      return res.data.map((appt: any) => ({
+                          ...appt,
+                          clinic: appt.clinic || {
+                              id: clinic.id,
+                              name: clinic.name,
+                              timezone: clinic.timezone
+                          }
+                      }));
+
+                  } catch (e) {
+                      console.warn(`Schedule fetch failed for ${clinic.name}`, e);
+                      return [];
+                  }
+              } else {
+                  // 2. No Permission (Visiting) -> Fallback to My Appointments for this clinic
+                  return myAppts.filter((a: Appointment) => a.clinic_id === clinic.id);
+              }
+          });
+
+          const results = await Promise.all(fetchPromises);
+          finalData = results.flat();
+      }
+
+      // C. Deduplication & Sorting
+      const uniqueMap = new Map();
+      finalData.forEach(item => uniqueMap.set(item.id, item));
+      const uniqueData = Array.from(uniqueMap.values()) as Appointment[];
+
+      const sorted = uniqueData.sort((a, b) => 
+          new Date(a.datetime_start).getTime() - new Date(b.datetime_start).getTime()
+      );
+
+      setAppointments(sorted);
+
+  } catch (error) {
+      console.error("Error fetching appointments:", error);
+  } finally {
+      setIsLoadingData(false);
+  }
+};
 
   useEffect(() => {
     if (!loadingContext) fetchAppointments();
@@ -386,6 +429,17 @@ export default function DoctorAppointmentsPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
+            {canBookAppointments && (
+  <Button 
+    variant="primary" 
+    size="md"
+    onClick={() => setIsNewAppointmentModalOpen(true)}
+    className="flex items-center"
+  >
+    <Plus className="h-4 w-4 mr-2" />
+    New Appointment
+  </Button>
+)}
              
             {/* 1. CLINIC SELECTOR */}
             {associatedClinics.length > 0 && (
@@ -515,15 +569,27 @@ export default function DoctorAppointmentsPage() {
                             </select>
                         </div>
                         <DatePicker
-                            label="Start Date"
-                            value={filters.startDate ? new Date(filters.startDate) : null}
-                            onChange={(d) => setFilters(prev => ({...prev, startDate: d.toISOString().split('T')[0]}))}
-                        />
-                        <DatePicker
-                            label="End Date"
-                            value={filters.endDate ? new Date(filters.endDate) : null}
-                            onChange={(d) => setFilters(prev => ({...prev, endDate: d.toISOString().split('T')[0]}))}
-                        />
+    label="Start Date"
+    value={filters.startDate ? new Date(filters.startDate) : null}
+    onChange={(d) => {
+        if (d) {
+            setFilters(prev => ({...prev, startDate: d.toISOString().split('T')[0]}));
+        } else {
+            setFilters(prev => ({...prev, startDate: ''}));
+        }
+    }}
+/>
+<DatePicker
+    label="End Date"
+    value={filters.endDate ? new Date(filters.endDate) : null}
+    onChange={(d) => {
+        if (d) {
+            setFilters(prev => ({...prev, endDate: d.toISOString().split('T')[0]}));
+        } else {
+            setFilters(prev => ({...prev, endDate: ''}));
+        }
+    }}
+/>
                     </div>
                 )}
            </div>
@@ -595,6 +661,19 @@ export default function DoctorAppointmentsPage() {
             role={context.role}
         />
       )}
+
+{isNewAppointmentModalOpen && context && (
+  <DoctorNewAppointmentModal
+    onClose={() => setIsNewAppointmentModalOpen(false)}
+    onRefreshList={fetchAppointments}
+    selectedClinicId={selectedClinicId}
+    viewScope={viewScope}
+    associatedClinics={associatedClinics}
+    currentDoctorId={context.localDoctorId || 0}
+    currentDoctorName={`${user?.first_name || ''} ${user?.last_name || ''}`}
+    canBookAppointments={canBookAppointments}
+  />
+)}
     </DoctorDashboardLayout>
   );
 }

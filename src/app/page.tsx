@@ -44,43 +44,63 @@ export default function HomePage() {
     dispatch(authFailure(null));
   }, [currentView, dispatch]);
 
-  const handleLoginSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    dispatch(authRequest());
+const handleLoginSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  dispatch(authRequest());
 
-    try {
-      const response = await api.post('/auth/login', { 
-        email: loginEmail, 
-        password: loginPassword 
-      });
-      const { token, user } = response.data;
-      
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('token', token);
-      }
-
-      dispatch(authSuccess({ user, token }));
-
-      if (user.role === 'clinic_admin') {
-        if (user.clinics && user.clinics.length > 0) {
-          router.push('/clinic-admin/dashboard');
-        } else {
-          router.push('/clinic-admin/profile-setup');
-        }
-      } else if (user.role === 'doctor') {
-        if (user.profileSetupComplete) {
-          router.push('/doctor/dashboard');
-        } else {
-          router.push('/doctor/profile-setup');
-        }
-      } else {
-        router.push('/');
-      }
-    } catch (err: any) {
-      const errorMessage = err.response?.data?.message || 'Login failed. Please check your credentials.';
-      dispatch(authFailure(errorMessage));
+  try {
+    const response = await api.post('/auth/login', { 
+      email: loginEmail, 
+      password: loginPassword 
+    });
+    const { token, user } = response.data;
+    
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('token', token);
     }
-  };
+
+    // DOCTOR-SPECIFIC: Fetch clinic data with permissions for doctors only
+    let enrichedUser = user;
+if (user.role === 'doctor') {
+  try {
+    const clinicResponse = await api.get('/doctor/my-clinics-details');
+    const clinics = clinicResponse.data.map((item: any) => ({
+      id: item.clinic.id,
+      name: item.clinic.name,
+      address: item.clinic.address,
+      email: item.clinic.email,
+      phone: item.clinic.phone,
+      role: item.assigned_role // OWNER, PARTNER, DOCTOR_VISITING, etc.
+    }));
+    
+    enrichedUser = { ...user, clinics };
+  } catch (err) {
+    console.error('Failed to fetch doctor clinic data:', err);
+  }
+}
+
+    dispatch(authSuccess({ user: enrichedUser, token }));
+
+    if (user.role === 'clinic_admin') {
+      if (user.clinics && user.clinics.length > 0) {
+        router.push('/clinic-admin/dashboard');
+      } else {
+        router.push('/clinic-admin/profile-setup');
+      }
+    } else if (user.role === 'doctor') {
+      if (user.profileSetupComplete) {
+        router.push('/doctor/dashboard');
+      } else {
+        router.push('/doctor/profile-setup');
+      }
+    } else {
+      router.push('/');
+    }
+  } catch (err: any) {
+    const errorMessage = err.response?.data?.message || 'Login failed. Please check your credentials.';
+    dispatch(authFailure(errorMessage));
+  }
+};
 
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

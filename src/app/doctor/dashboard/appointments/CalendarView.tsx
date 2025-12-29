@@ -4,7 +4,7 @@ import React from 'react';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import { Appointment } from '@/types/clinic';
-import { ChevronLeft, ChevronRight, RefreshCw, MapPin } from 'lucide-react'; // Added MapPin
+import { ChevronLeft, ChevronRight, RefreshCw, MapPin } from 'lucide-react';
 import { assignOverlapColumns, doctorColor, isRescheduled } from '@/lib/utils/appointments';
 
 interface CalendarViewProps {
@@ -12,7 +12,7 @@ interface CalendarViewProps {
   weekDays: Date[];
   earliestHour: number;
   latestHour: number;
-  clinicTimezone: string;
+  clinicTimezone: string; // Kept for prop compatibility, but we force UTC display
   calendarRef: React.RefObject<HTMLDivElement | null>;
   onAppointmentClick: (appointment: Appointment) => void;
   onNavigateWeek: (direction: "prev" | "next") => void;
@@ -21,19 +21,15 @@ interface CalendarViewProps {
   onExpandLater: () => void;
 }
 
-const getZonedDate = (dateString: string | Date, timezone: string): Date => {
-  const date = new Date(dateString);
-  const zonedString = date.toLocaleString('en-US', { timeZone: timezone });
-  return new Date(zonedString);
-};
-
-const formatClinicTime = (dateString: string | Date, timezone: string) => {
+// 1. REPLACED: Use UTC formatting directly.
+// This ensures we display the time exactly as it exists in the DB string (e.g. 09:00Z -> 9:00 AM)
+const formatClinicTime = (dateString: string | Date) => {
   const date = new Date(dateString);
   return new Intl.DateTimeFormat('en-US', {
     hour: 'numeric',
     minute: '2-digit',
     hour12: true,
-    timeZone: timezone,
+    timeZone: 'UTC', // FORCE UTC
   }).format(date);
 };
 
@@ -42,7 +38,7 @@ export default function CalendarView({
   weekDays,
   earliestHour,
   latestHour,
-  clinicTimezone,
+  clinicTimezone, // Unused for calculation now, consistent with "everything is UTC"
   calendarRef,
   onAppointmentClick,
   onNavigateWeek,
@@ -51,22 +47,30 @@ export default function CalendarView({
   onExpandLater,
 }: CalendarViewProps) {
 
+  // 2. UPDATED: Compare UTC dates to the Grid Day
   const getAppointmentsForDay = (day: Date) => {
     return appointments.filter(apt => {
-      const aptZoned = getZonedDate(apt.datetime_start, clinicTimezone);
-      return aptZoned.toDateString() === day.toDateString();
+      const aptDate = new Date(apt.datetime_start);
+      // Compare the UTC date parts of the appointment to the local date parts of the grid column
+      return (
+        aptDate.getUTCDate() === day.getDate() &&
+        aptDate.getUTCMonth() === day.getMonth() &&
+        aptDate.getUTCFullYear() === day.getFullYear()
+      );
     });
   };
 
   const hours = Array.from({ length: latestHour - earliestHour }, (_, i) => i + earliestHour);
   const totalMinutes = (latestHour - earliestHour) * 60;
 
+  // 3. UPDATED: Calculate position using direct UTC values
   const computePositionStyle = (startOriginal: string, endOriginal: string) => {
-    const startZoned = getZonedDate(startOriginal, clinicTimezone);
-    const endZoned = getZonedDate(endOriginal, clinicTimezone);
+    const start = new Date(startOriginal);
+    const end = new Date(endOriginal);
 
-    const startMinutes = (startZoned.getHours() - earliestHour) * 60 + startZoned.getMinutes();
-    const durationMin = (endZoned.getTime() - startZoned.getTime()) / (1000 * 60);
+    // Use getUTCHours/Minutes to ignore browser/clinic timezone offsets
+    const startMinutes = (start.getUTCHours() - earliestHour) * 60 + start.getUTCMinutes();
+    const durationMin = (end.getTime() - start.getTime()) / (1000 * 60);
     
     const top = (startMinutes / totalMinutes) * 100;
     const height = (durationMin / totalMinutes) * 100;
@@ -136,17 +140,19 @@ export default function CalendarView({
                   ))}
 
                   {appts.map((a) => {
-                    const startZoned = getZonedDate(a.datetime_start, clinicTimezone);
-                    const endZoned = getZonedDate(a.datetime_end, clinicTimezone);
+                    // Check against UTC hours
+                    const startHours = new Date(a.datetime_start).getUTCHours();
+                    const endHours = new Date(a.datetime_end).getUTCHours();
 
-                    if (endZoned.getHours() < earliestHour || startZoned.getHours() >= latestHour) return null;
+                    if (endHours < earliestHour || startHours >= latestHour) return null;
 
                     const pos = computePositionStyle(a.datetime_start, a.datetime_end);
                     const colInfo = overlapMap.get(a.id) || { col: 0, colsCount: 1 };
                     const widthPercent = 100 / colInfo.colsCount;
                     const leftPercent = colInfo.col * widthPercent;
                     const color = doctorColor(a.clinic_doctor_id ?? a.doctor?.id);
-                    const timeRange = `${formatClinicTime(a.datetime_start, clinicTimezone)} - ${formatClinicTime(a.datetime_end, clinicTimezone)}`;
+                    // Format time using pure UTC
+                    const timeRange = `${formatClinicTime(a.datetime_start)} - ${formatClinicTime(a.datetime_end)}`;
 
                     return (
                       <div 
@@ -170,7 +176,6 @@ export default function CalendarView({
                             {a.patient ? `${a.patient.first_name} ${a.patient.last_name}` : '—'}
                           </div>
                           
-                          {/* Clinic Name - NEW (Compact) */}
                           {a.clinic && (
                               <div className="truncate opacity-75 mt-0.5 flex items-center">
                                   <MapPin className="h-2 w-2 mr-0.5 flex-shrink-0" />

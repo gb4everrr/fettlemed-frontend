@@ -9,19 +9,23 @@ import { toggleSidebar } from '@/lib/features/ui/uiSlice';
 import { useRouter, usePathname } from 'next/navigation';
 import Button from '@/components/ui/Button';
 import ClinicThemeProvider from '@/components/provider/ClinicThemeProvider';
+import { Permission } from '@/lib/features/auth/Can'; // 1. Import Permission type
+import { setActivePermissions } from '@/lib/features/auth/authSlice';
 import { 
-  Calendar, 
-  ClipboardList, 
   Users, 
-  Building2, 
-  Clock, 
-  Receipt, 
-  User,
+  UserCheck, 
+  Calendar, 
+  Activity, 
+  Settings, 
+  ReceiptText, 
+  Building2,
+  ChevronLeft,
   Menu,
   X,
   ArrowLeft,
   PanelLeftClose,
-  PanelRightClose
+  PanelRightClose,
+  ChartNoAxesCombined
 } from 'lucide-react';
 import { RxDashboard } from 'react-icons/rx';
 
@@ -31,10 +35,38 @@ const DoctorDashboardLayout = ({ children, headerText }: { children: React.React
   const dispatch = useAppDispatch();
   const router = useRouter();
   const pathname = usePathname();
-  const { user } = useAppSelector((state: any) => state.auth);
+  
+  // FIX: Select activePermissions individually to ensure reliable re-renders
+  const activePermissions = useAppSelector((state: any) => state.auth.activePermissions);
+  const user = useAppSelector((state: any) => state.auth.user);
+  const clinics = user?.clinics || [];
+
+  const hasOwnerOrPartnerRole = React.useMemo(() => {
+  return clinics.some((clinic: any) => 
+    clinic.role === 'OWNER' || 
+    clinic.role === 'PARTNER' || 
+    clinic.role === 'DOCTOR_OWNER' || 
+    clinic.role === 'DOCTOR_PARTNER'
+  );
+}, [clinics])
+
+    React.useEffect(() => {
+    console.log('DoctorDashboardLayout mounted');
+    console.log('activePermissions:', activePermissions);
+    console.log('user.clinics:', user?.clinics);
+    
+    // If permissions are empty but we have clinic data, recalculate them
+    if ((!activePermissions || activePermissions.length === 0) && user?.clinics && user.clinics.length > 0) {
+      console.log('Permissions empty but clinics exist - dispatching setActivePermissions');
+      const firstClinic = user.clinics[0];
+      dispatch(setActivePermissions(firstClinic.permissions || []));
+    }
+  }, []);
+  
   const { sidebarCollapsed } = useAppSelector((state) => state.ui || { sidebarCollapsed: false });
 
   const doctorName = user?.last_name || 'Doctor';
+
 
   const handleLogout = () => {
     dispatch(logout());
@@ -61,15 +93,39 @@ const DoctorDashboardLayout = ({ children, headerText }: { children: React.React
   // Determine if we are on the root dashboard page to conditionally hide the "Back" button
   const isDashboardRoot = pathname === '/doctor/dashboard/' || pathname === '/doctor/dashboard';
 
-  const menuItems = [
-    { href: '/doctor/dashboard/', label: 'Dashboard', icon: RxDashboard },
-    { href: '/doctor/dashboard/appointments', label: 'Appointments', icon: ClipboardList },
-    { href: '/doctor/dashboard/patients', label: 'Patients', icon: Users },
-    { href: '/doctor/dashboard/clinics', label: 'Clinics', icon: Building2 },
-    { href: '/doctor/dashboard/availability', label: 'Availability', icon: Clock },
-    { href: '/doctor/dashboard/invoices', label: 'Invoices', icon: Receipt },
-    { href: '/doctor/dashboard/profile-setup', label: 'Settings', icon: User },
-  ];
+  // 3. Define the Menu Item structure
+type MenuItem = {
+  href: string;
+  label: string;
+  icon: any;
+  requiresOwnerOrPartner?: boolean; // Change from permission to allowedRoles
+};
+
+  // 4. Update the menu items array
+const menuItems: MenuItem[] = [
+  { href: '/doctor/dashboard/', label: 'Dashboard', icon: RxDashboard },
+  { href: '/doctor/dashboard/appointments', label: 'Appointments', icon: Calendar },
+  { href: '/doctor/dashboard/patients', label: 'Patients', icon: Users },
+  { href: '/doctor/dashboard/billing', label: 'Billing', icon: ReceiptText },
+  { 
+    href: '/doctor/dashboard/doctors', 
+    label: 'Doctors', 
+    icon: Users,
+    requiresOwnerOrPartner: true // Simple flag
+  },
+  { href: '/doctor/dashboard/settings', label: 'Settings', icon: Settings}
+];
+
+// Filter menu items based on role
+const visibleMenuItems = React.useMemo(() => {
+  return menuItems.filter((item) => {
+    // If no special role requirement, show the item
+    if (!item.requiresOwnerOrPartner) return true;
+
+    // Check if user has owner/partner role in any clinic
+    return hasOwnerOrPartnerRole;
+  });
+}, [hasOwnerOrPartnerRole]);
 
   return (
     <ClinicThemeProvider>
@@ -147,7 +203,8 @@ const DoctorDashboardLayout = ({ children, headerText }: { children: React.React
             </div>
             
             <nav className="flex flex-col flex-1 overflow-y-auto w-full">
-              {menuItems.map((item) => {
+              {/* 6. Map over visibleMenuItems instead of the raw menuItems array */}
+              {visibleMenuItems.map((item) => {
                 const IconComponent = item.icon;
                 const isActive = pathname === item.href;
                 

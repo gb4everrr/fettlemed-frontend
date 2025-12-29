@@ -24,19 +24,11 @@ const minutesToTime = (minutes: number) => {
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
 };
 const formatHour = (h: number) => (h === 0 ? '12 AM' : h < 12 ? `${h} AM` : h === 12 ? '12 PM' : `${h - 12} PM`);
-
-// FIX: Local Date Formatter to prevent timezone shifts
-const formatLocalDate = (d: Date) => {
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-};
+const formatDate = (d: Date) => d.toISOString().split('T')[0];
 
 export function DoctorExceptionsModal({ doctorId, clinicId, doctorName, onClose }: DoctorExceptionsModalProps) {
     const [currentWeekStart, setCurrentWeekStart] = useState(() => {
         const d = new Date();
-        d.setHours(0, 0, 0, 0);
         const day = d.getDay();
         const diff = d.getDate() - day + (day === 0 ? -6 : 1); 
         return new Date(d.setDate(diff));
@@ -59,14 +51,16 @@ export function DoctorExceptionsModal({ doctorId, clinicId, doctorName, onClose 
     const gridScrollRef = useRef<HTMLDivElement>(null);
 
     // Note Modal
-    const [noteModal, setNoteModal] = useState<{ open: boolean; x: number; y: number; note: string; }>({
-        open: false, x: 0, y: 0, note: ''
+    const [noteModal, setNoteModal] = useState<{ open: boolean; x: number; y: number; note: string; pendingData: any | null }>({
+        open: false, x: 0, y: 0, note: '', pendingData: null
     });
     const noteInputRef = useRef<HTMLTextAreaElement>(null);
 
     const rows = 24 * 4;
     const cols = 7;
+    // UI Display Names (Abbreviated)
     const displayDayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    // Backend Logic Names (Full)
     const fullDayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
     // Init Grid
@@ -74,7 +68,7 @@ export function DoctorExceptionsModal({ doctorId, clinicId, doctorName, onClose 
         setExceptionsGrid(Array(rows).fill(null).map(() => Array(cols).fill(0)));
     }, []);
 
-    // Scroll to 8 AM
+    // Scroll
     useEffect(() => {
         if (gridScrollRef.current && !isLoading) {
             setTimeout(() => { if (gridScrollRef.current) gridScrollRef.current.scrollTop = (8 * 4) * 20; }, 100);
@@ -121,9 +115,7 @@ export function DoctorExceptionsModal({ doctorId, clinicId, doctorName, onClose 
             const exDate = new Date(y, m - 1, d);
             
             const colIdx = weekDates.findIndex(wd => 
-                wd.getDate() === exDate.getDate() && 
-                wd.getMonth() === exDate.getMonth() && 
-                wd.getFullYear() === exDate.getFullYear()
+                wd.getDate() === exDate.getDate() && wd.getMonth() === exDate.getMonth()
             );
 
             if (colIdx !== -1 && !ex.is_available) {
@@ -145,7 +137,9 @@ export function DoctorExceptionsModal({ doctorId, clinicId, doctorName, onClose 
     const today = new Date(); 
     today.setHours(0,0,0,0);
 
+    // --- HELPER: Check Regular Schedule (FIXED) ---
     const isRegularlyAvailable = (date: Date, row: number) => {
+        // FIX: Use full names (e.g., 'Monday') to match backend data
         const dayName = fullDayNames[date.getDay()]; 
         const timeStr = minutesToTime(row * 15);
         
@@ -157,7 +151,7 @@ export function DoctorExceptionsModal({ doctorId, clinicId, doctorName, onClose 
     };
 
     // Painting Handlers
-    const handleMouseDown = (row: number, col: number, e: React.MouseEvent) => {
+    const handleMouseDown = (row: number, col: number) => {
         if (weekDates[col] < today) return;
         setIsPainting(true);
         isPaintingRef.current = true;
@@ -183,15 +177,12 @@ export function DoctorExceptionsModal({ doctorId, clinicId, doctorName, onClose 
             isPaintingRef.current = false;
             
             if (paintValueRef.current === 2) {
-                // FIX: Better positioning calculation + explicit Fixed strategy
-                const x = Math.min(e.clientX, window.innerWidth - 320);
-                const y = Math.min(e.clientY, window.innerHeight - 250);
-                
                 setNoteModal({
                     open: true,
-                    x,
-                    y,
-                    note: ''
+                    x: Math.min(e.clientX, window.innerWidth - 300),
+                    y: Math.min(e.clientY, window.innerHeight - 200),
+                    note: '',
+                    pendingData: { processed: false }
                 });
                 setTimeout(() => noteInputRef.current?.focus(), 100);
             }
@@ -200,14 +191,11 @@ export function DoctorExceptionsModal({ doctorId, clinicId, doctorName, onClose 
 
     const handleSaveFull = async () => {
         setIsSaving(true);
-        setError(null);
-        setSuccessMessage(null);
         try {
             // 1. Calculate Exceptions from Grid
             const newExceptions = [];
             for (let col = 0; col < cols; col++) {
-                // FIX: Use formatLocalDate
-                const dateStr = formatLocalDate(weekDates[col]);
+                const dateStr = formatDate(weekDates[col]);
                 let start = -1;
                 for (let row = 0; row <= rows; row++) {
                     const isRed = row < rows && exceptionsGrid[row][col] === 2;
@@ -218,14 +206,14 @@ export function DoctorExceptionsModal({ doctorId, clinicId, doctorName, onClose 
                             start_time: minutesToTime(start),
                             end_time: minutesToTime(row * 15),
                             is_available: false,
-                            note: noteModal.note || '' // Simplified note logic (applies last typed note to all new blocks, can be refined)
+                            note: ''
                         });
                         start = -1;
                     }
                 }
             }
 
-            // 2. Delete existing in view
+            // 2. Delete existing
             const weekEnd = new Date(currentWeekStart);
             weekEnd.setDate(weekEnd.getDate() + 6);
             
@@ -236,9 +224,7 @@ export function DoctorExceptionsModal({ doctorId, clinicId, doctorName, onClose 
             });
 
             for (const ex of toDelete) {
-                await api.delete(`/availability/exception/${ex.id}`, { 
-                    params: { clinic_doctor_id: doctorId, clinic_id: clinicId } 
-                });
+                await api.delete(`/availability/exception/${ex.id}`, { params: { clinic_doctor_id: doctorId, clinic_id: clinicId } });
             }
 
             // 3. Create New
@@ -246,8 +232,9 @@ export function DoctorExceptionsModal({ doctorId, clinicId, doctorName, onClose 
                 await api.post('/availability/exception', { ...ex, clinic_doctor_id: doctorId, clinic_id: clinicId });
             }
 
-            setSuccessMessage('Exceptions saved successfully!');
-            setTimeout(onClose, 1500); 
+            setSuccessMessage('Exceptions saved!');
+            setTimeout(onClose, 1000);
+
         } catch (err) {
             setError('Failed to save exceptions.');
         } finally {
@@ -258,92 +245,69 @@ export function DoctorExceptionsModal({ doctorId, clinicId, doctorName, onClose 
     return (
         <div className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center p-4 z-50" onMouseUp={handleMouseUp}>
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col border border-gray-200" onClick={e => e.stopPropagation()}>
+                
                 {/* Header */}
-                <div className="p-6 border-b border-gray-200 flex justify-between items-center bg-white rounded-t-xl">
+                <div className="p-6 border-b border-gray-200 flex justify-between items-center bg-gray-50 rounded-t-xl">
                     <div>
-                        <h2 className="text-xl font-bold text-gray-800">Manage Exceptions</h2>
-                        <p className="text-sm text-gray-500">For {doctorName}</p>
+                        <h2 className="text-2xl font-bold text-gray-800">Availability Exceptions</h2>
+                        <p className="text-sm text-gray-500">Mark unavailable times for Dr. {doctorName}</p>
                     </div>
-                    <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full text-gray-500">
-                        <X size={20} />
+                    <button onClick={onClose} className="text-gray-500 hover:text-gray-700 p-2 hover:bg-gray-200 rounded-full">
+                        <X className="h-6 w-6" />
                     </button>
                 </div>
 
-                {/* FIX: Status Messages Container */}
-                <div className="px-6 pt-4">
-                    {error && <div className="p-3 bg-red-50 text-red-600 text-sm rounded-md border border-red-200">{error}</div>}
-                    {successMessage && <div className="p-3 bg-green-50 text-green-600 text-sm rounded-md border border-green-200">{successMessage}</div>}
-                </div>
-
                 {/* Toolbar */}
-                <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
-                     <div className="flex items-center space-x-4">
-                        <button 
-                            onClick={() => setCurrentWeekStart(d => { const n = new Date(d); n.setDate(d.getDate() - 7); return n; })} 
-                            className="p-1 hover:bg-gray-200 rounded"
-                        >
-                            <ChevronLeft className="h-5 w-5 text-gray-600"/>
-                        </button>
-                        <span className="font-semibold text-gray-700 text-center flex">
-                            {weekDates[0].toLocaleDateString()} - {weekDates[6].toLocaleDateString()}
-                        </span>
-                        <button 
-                            onClick={() => setCurrentWeekStart(d => { const n = new Date(d); n.setDate(d.getDate() + 7); return n; })} 
-                            className="p-1 hover:bg-gray-200 rounded"
-                        >
-                            <ChevronRight className="h-5 w-5 text-gray-600"/>
-                        </button>
+                <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-white">
+                    <div className="flex items-center space-x-4">
+                         <button onClick={() => setCurrentWeekStart(d => { const n = new Date(d); n.setDate(d.getDate() - 7); return n; })} className="p-1 hover:bg-gray-100 rounded"><ChevronLeft className="h-5 w-5"/></button>
+                         <span className="font-semibold text-gray-700">
+                             {weekDates[0].toLocaleDateString()} - {weekDates[6].toLocaleDateString()}
+                         </span>
+                         <button onClick={() => setCurrentWeekStart(d => { const n = new Date(d); n.setDate(d.getDate() + 7); return n; })} className="p-1 hover:bg-gray-100 rounded"><ChevronRight className="h-5 w-5"/></button>
                     </div>
-                    <div className="text-xs flex items-center gap-3">
-                        <div className="flex items-center"><span className="w-3 h-3 bg-red-500 rounded-sm mr-2"></span> Unavailable</div>
+                    <div className="text-sm flex items-center gap-4">
+                        <div className="flex items-center"><span className="w-3 h-3 bg-red-500 rounded-sm mr-2"></span> Unavailable (Exception)</div>
                         <div className="flex items-center"><span className="w-3 h-3 bg-gray-300 rounded-sm mr-2"></span> Regular Schedule</div>
                     </div>
                 </div>
 
                 {/* Grid */}
-                {isLoading ? (
-                    <div className="flex-1 flex items-center justify-center">
-                        <Loader2 className="animate-spin text-blue-600" />
-                    </div>
-                ) : (
-                    <div className="flex-1 overflow-hidden relative flex flex-col" onMouseLeave={() => setIsPainting(false)}>
+                <div className="flex-1 overflow-hidden p-0 flex flex-col relative">
+                    {isLoading ? <div className="flex-1 flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-blue-500"/></div> : (
                         <div className="flex-1 overflow-y-auto" ref={gridScrollRef}>
-                            <div className="grid grid-cols-8 gap-0 min-w-[600px]">
-                                {/* Time Column */}
-                                <div className="bg-gray-50 border-r border-gray-200 sticky left-0 z-20">
-                                    <div className="h-[52px] border-b border-gray-200 bg-gray-50 sticky top-0 z-30"></div>
+                            <div className="grid grid-cols-8 gap-0">
+                                {/* Time */}
+                                <div className="bg-gray-50 border-r border-gray-200">
                                     {Array.from({length: 24}).map((_, h) => (
-                                        <div key={h} className="h-20 flex items-center justify-end pr-2 text-xs text-gray-500 border-b border-gray-100">
-                                            {formatHour(h)}
-                                        </div>
+                                        <div key={h} className="h-20 flex items-center justify-end pr-2 text-xs text-gray-500 border-b border-gray-100">{formatHour(h)}</div>
                                     ))}
                                 </div>
-
                                 {/* Days */}
                                 {weekDates.map((date, col) => (
-                                    <div key={col} className={`border-r border-gray-200 last:border-r-0 ${date < today ? 'bg-gray-50/50' : ''}`}>
-                                        <div className="sticky top-0 bg-white z-10 text-center border-b border-gray-200 py-2 h-[52px]">
+                                    <div key={col} className={`border-r border-gray-200 last:border-r-0 ${date < today ? 'bg-gray-50' : ''}`}>
+                                        <div className="sticky top-0 bg-white z-10 text-center border-b border-gray-200 py-2">
+                                            {/* UI Uses Abbreviated Names */}
                                             <div className="text-xs font-bold text-gray-500 uppercase">{displayDayNames[date.getDay()]}</div>
-                                            <div className={`text-sm font-semibold ${date.toDateString() === today.toDateString() ? 'text-blue-600' : ''}`}>
-                                                {date.getDate()}
-                                            </div>
+                                            <div className="text-sm font-semibold">{date.getDate()}</div>
                                         </div>
                                         {Array.from({length: rows}).map((_, row) => {
                                             const isPast = date < today;
                                             const isException = exceptionsGrid[row][col] === 2;
                                             const isRegular = !isException && isRegularlyAvailable(date, row);
                                             
+                                            // Determine Background Color
                                             let bgClass = 'bg-white';
-                                            if (isPast) bgClass = 'bg-gray-100 cursor-not-allowed';
-                                            else if (isException) bgClass = 'bg-red-500 hover:bg-red-600 cursor-pointer'; 
-                                            else if (isRegular) bgClass = 'bg-gray-300 hover:bg-gray-400 cursor-pointer'; 
-                                            else bgClass = 'hover:bg-red-50 cursor-pointer';
+                                            if (isPast) bgClass = 'bg-gray-100'; // Past = Light Gray
+                                            else if (isException) bgClass = 'bg-red-500 hover:bg-red-600'; // Exception = Red
+                                            else if (isRegular) bgClass = 'bg-gray-300 hover:bg-gray-400'; // Regular = Darker Gray
+                                            else bgClass = 'hover:bg-red-50'; // Available to click
 
                                             return (
                                                 <div 
                                                     key={row}
-                                                    className={`h-[20px] border-b border-gray-50 transition-colors ${bgClass} ${row % 4 === 3 ? 'border-b-gray-200' : ''}`}
-                                                    onMouseDown={(e) => handleMouseDown(row, col, e)}
+                                                    className={`h-[20px] border-b border-gray-50 transition-colors ${bgClass} ${row % 4 === 3 ? 'border-b-gray-200' : ''} ${isPast ? 'pointer-events-none' : 'cursor-pointer'}`}
+                                                    onMouseDown={() => handleMouseDown(row, col)}
                                                     onMouseEnter={() => handleMouseEnter(row, col)}
                                                 />
                                             );
@@ -352,30 +316,29 @@ export function DoctorExceptionsModal({ doctorId, clinicId, doctorName, onClose 
                                 ))}
                             </div>
                         </div>
+                    )}
 
-                        {/* FIX: Note Modal using Fixed Positioning and Higher Z-Index */}
-                        {noteModal.open && (
-                            <div 
-                                className="fixed bg-white rounded-lg shadow-2xl p-4 border border-gray-200 z-[60]"
-                                style={{ top: noteModal.y, left: noteModal.x, width: '300px' }}
-                                onClick={e => e.stopPropagation()}
-                            >
-                                <h4 className="text-sm font-semibold mb-2">Reason (Optional)</h4>
-                                <textarea 
-                                    ref={noteInputRef}
-                                    className="w-full border rounded p-2 text-sm mb-2 focus:ring-2 focus:ring-blue-500 outline-none" 
-                                    rows={2}
-                                    placeholder="e.g. Vacation"
-                                    value={noteModal.note}
-                                    onChange={e => setNoteModal(prev => ({ ...prev, note: e.target.value }))}
-                                />
-                                <div className="flex justify-end gap-2">
-                                    <Button size="sm" variant="primary" onClick={() => setNoteModal(prev => ({ ...prev, open: false }))}>OK</Button>
-                                </div>
+                    {/* Note Modal */}
+                    {noteModal.open && (
+                        <div 
+                            className="absolute bg-white rounded-lg shadow-xl p-4 border border-gray-200 z-[60]"
+                            style={{ top: noteModal.y, left: noteModal.x, width: '300px' }}
+                            onClick={e => e.stopPropagation()}
+                        >
+                            <h4 className="text-sm font-semibold mb-2">Optional Reason</h4>
+                            <textarea 
+                                ref={noteInputRef}
+                                className="w-full border rounded p-2 text-sm mb-2" 
+                                rows={2}
+                                value={noteModal.note}
+                                onChange={e => setNoteModal(prev => ({ ...prev, note: e.target.value }))}
+                            />
+                            <div className="flex justify-end gap-2">
+                                <Button size="sm" variant="primary" onClick={() => setNoteModal(prev => ({ ...prev, open: false }))}>OK</Button>
                             </div>
-                        )}
-                    </div>
-                )}
+                        </div>
+                    )}
+                </div>
 
                 {/* Footer */}
                 <div className="p-4 border-t border-gray-200 bg-gray-50 rounded-b-xl flex justify-end space-x-3">

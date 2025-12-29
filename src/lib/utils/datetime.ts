@@ -1,6 +1,6 @@
 // src/lib/utils/datetime.ts
 
-export const formatDateTime = (utcIsoString: string, timeZone: string = 'Asia/Kolkata') => {
+export const formatDateTime = (utcIsoString: string, timeZone: string = 'UTC') => {
   if (!utcIsoString) return '';
   try {
     const date = new Date(utcIsoString);
@@ -21,7 +21,7 @@ export const formatDateTime = (utcIsoString: string, timeZone: string = 'Asia/Ko
   }
 };
 
-export const formatTimeOnly = (utcIsoString: string, timeZone: string = 'Asia/Kolkata') => {
+export const formatTimeOnly = (utcIsoString: string, timeZone: string = 'UTC') => {
   if (!utcIsoString) return '';
   try {
     const date = new Date(utcIsoString);

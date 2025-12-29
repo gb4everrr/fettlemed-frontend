@@ -7,6 +7,7 @@ import DoctorDashboardLayout from '@/components/DoctorDashboardLayout';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import { useRouter, useParams } from 'next/navigation';
+import { VitalsCard } from '@/components/doctor/widgets/VitalsCard';
 import { 
   AlertCircle,
   Search,
@@ -28,13 +29,16 @@ import { EditAppointmentModal } from '@/components/doctor/modals/EditAppointment
 import { EditPatientModal } from '@/components/doctor/modals/EditPatientModal';
 import { NewAppointmentModal } from '@/components/doctor/modals/NewAppointmentModal'; // Reusing Clinic Modal
 
+import { AllergiesCard } from '@/components/doctor/widgets/AllergiesCard';
+
 // Roles that are allowed to see full history and book for other doctors
 const PRIVILEGED_ROLES = ['OWNER', 'CLINIC_ADMIN', 'DOCTOR_OWNER', 'DOCTOR_PARTNER'];
 
 export default function DoctorPatientProfilePage() {
   const router = useRouter();
   const params = useParams();
-  const patientId = params?.id || params?.patientId as string;
+  const rawId = params?.id || params?.patientId;
+  const patientId = Array.isArray(rawId) ? rawId[0] : rawId as string;
   const { user } = useAppSelector((state: any) => state.auth);
 
   // --- State ---
@@ -353,7 +357,7 @@ export default function DoctorPatientProfilePage() {
                 }`}
               >
                 {tab}
-              </button>
+              </button> 
             ))}
           </nav>
         </div>
@@ -366,9 +370,14 @@ export default function DoctorPatientProfilePage() {
                 <div className="space-y-4">
                     <div>
                         <span className="text-xs font-semibold text-gray-500 uppercase">Allergies</span>
-                        <div className="mt-1">
-                            {patient.allergies?.length ? patient.allergies.map((a: string) => <div key={a} className="text-sm font-medium">{a}</div>) : <span className="text-gray-400 italic text-sm">None known</span>}
-                        </div>
+                        {patient && (
+                            <div className="h-96">
+                                <AllergiesCard 
+                                    patientId={patientId} 
+                                    clinicId={patient.clinic_id} 
+                                />
+                            </div>
+                        )}
                     </div>
                 </div>
             </Card>
@@ -480,24 +489,15 @@ export default function DoctorPatientProfilePage() {
 
         {/* CONTENT: VITALS (Simplified Grid) */}
         {activeTab === 'Vitals' && (
-             <div className="grid gap-4">
-                {vitalsHistory.length === 0 ? <Card padding="lg" className="text-center text-gray-500">No vitals history.</Card> : vitalsHistory.map((entry, idx) => (
-                    <Card key={idx} padding="md">
-                        <div className="flex items-center gap-2 text-sm text-gray-600 mb-3 border-b pb-2">
-                            <Clock className="h-4 w-4" />
-                            <span>{new Date(entry.date).toLocaleString()}</span>
-                        </div>
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                            {entry.values.map((val: any, vIdx: number) => (
-                                <div key={vIdx} className="bg-gray-50 p-2 rounded border border-gray-100">
-                                    <p className="text-xs text-gray-500 uppercase font-semibold">{val.vital_name}</p>
-                                    <p className="font-bold text-gray-800">{val.vital_value} <span className="text-xs font-normal text-gray-500">{val.unit}</span></p>
-                                </div>
-                            ))}
-                        </div>
-                    </Card>
-                ))}
-             </div>
+          <div >
+             {patient && (
+        <div >
+            <VitalsCard 
+                patientId={patientId} 
+                clinicId={patient.clinic_id} 
+            />
+        </div>
+    )}</div>
         )}
         
         {/* Placeholder Tabs */}

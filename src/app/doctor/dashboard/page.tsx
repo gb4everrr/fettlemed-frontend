@@ -28,32 +28,29 @@ export default function DoctorDashboardPage() {
     const [appointments, setAppointments] = useState<any[]>([]);
     const [patients, setPatients] = useState<any[]>([]);
     const [invoices, setInvoices] = useState<any[]>([]);
+
+    const [tasks, setTasks] = useState<any[]>([]);
     
     // UI State
     const [activeModal, setActiveModal] = useState<'note' | 'rx' | 'lab' | 'edit_appointment' | null>(null);
     const [selectedAppointment, setSelectedAppointment] = useState<any>(null);
-
-    // --- Mock Tasks Data ---
-    const tasks = [
-        { id: 1, task: 'Review lab results for J. Doe', priority: 'high', done: false },
-        { id: 2, task: 'Sign pending prescriptions', priority: 'medium', done: false },
-        { id: 3, task: 'Follow up with Sarah Smith', priority: 'low', done: true }
-    ];
 
     // --- Fetch Real Data ---
     const fetchAllData = async () => {
         if (!user) return;
         setIsLoading(true);
         try {
-            const [apptRes, patRes, invRes] = await Promise.all([
+            const [apptRes, patRes, invRes, taskRes] = await Promise.all([
                 api.get('/doctor/my-appointments-details'),
                 api.get('/doctor/my-patients-details'),
-                api.get('/doctor/my-invoices')
+                api.get('/doctor/my-invoices'),
+                api.get('/doctor/tasks')
             ]);
 
             setAppointments(Array.isArray(apptRes.data) ? apptRes.data : []);
             setPatients(Array.isArray(patRes.data) ? patRes.data : []);
             setInvoices(Array.isArray(invRes.data) ? invRes.data : []);
+            setTasks(taskRes.data || []);
 
         } catch (err) {
             console.error("Dashboard Data Fetch Error:", err);
@@ -64,7 +61,6 @@ export default function DoctorDashboardPage() {
 
     useEffect(() => {
         fetchAllData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [user]);
 
     // --- Handlers ---
@@ -114,7 +110,7 @@ export default function DoctorDashboardPage() {
 
     return (
         <DoctorDashboardLayout headerText={`Good Morning, Dr. ${user?.last_name || 'Doctor'}`}>
-            <div className="p-6 md:p-8 font-inter max-w-[1600px]">
+            <div className="p-6 mt-5 font-inter">
                 
                 {/* 3 Column Grid */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -141,12 +137,16 @@ export default function DoctorDashboardPage() {
                         />
                     </div>
 
-                    {/* RIGHT COLUMN: Stats & Tasks */}
+                   {/* RIGHT COLUMN: Stats & Tasks */}
                     <div className="lg:col-span-1 flex flex-col gap-6">
                         <InsightsWidget totalPatients={totalPatientsCount} totalAppts={totalApptsCount} />
-                        <RevenueWidget totalRevenue={totalRevenue} />
+                        {/* UPDATE: Changed 'totalRevenue' to 'amount' to match the Widget definition */}
+                        <RevenueWidget amount={totalRevenue} />
                         <div className="flex-1">
-                            <TasksWidget tasks={tasks} />
+                            <TasksWidget 
+                                tasks={tasks} 
+                                setTasks={setTasks} 
+                            />
                         </div>
                     </div>
                 </div>
