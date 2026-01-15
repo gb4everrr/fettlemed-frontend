@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 
 // --- Import Modals ---
-import { EditAppointmentModal } from '@/components/doctor/modals/EditAppointmentModal';
+import  EditAppointmentModal  from '@/components/doctor/modals/EditAppointmentModal';
 import { EditPatientModal } from '@/components/doctor/modals/EditPatientModal';
 import { NewAppointmentModal } from '@/components/doctor/modals/NewAppointmentModal'; // Reusing Clinic Modal
 

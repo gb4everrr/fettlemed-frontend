@@ -18,7 +18,7 @@ import {
 import { AddNoteModal } from '@/components/doctor/modals/AddNoteModal';
 import { CreatePrescriptionModal } from '@/components/doctor/modals/CreatePrescriptionModal';
 // --- IMPORT THE EDIT APPOINTMENT MODAL ---
-import { EditAppointmentModal } from '@/components/doctor/modals/EditAppointmentModal'; 
+import   EditAppointmentModal  from '@/components/doctor/modals/EditAppointmentModal'; 
 
 export default function DoctorDashboardPage() {
     const { user } = useAppSelector((state: any) => state.auth);

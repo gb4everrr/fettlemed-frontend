@@ -30,7 +30,7 @@ import { Appointment, ClinicDoctor, ClinicPatient } from '@/types/clinic';
 import { getWeekDays } from '@/lib/utils/datetime';
 
 // Modal
-import { EditAppointmentModal } from '@/components/doctor/modals/EditAppointmentModal'; 
+import  EditAppointmentModal  from '@/components/doctor/modals/EditAppointmentModal'; 
 import { DoctorNewAppointmentModal } from '@/components/doctor/modals/DoctorNewAppointmentModal';
 
 // Helpers
