@@ -29,7 +29,7 @@ import CalendarView from '@/app/doctor/dashboard/appointments/CalendarView';
 import ListView from '@/app/doctor/dashboard/appointments/ListView';
 
 // --- Modals ---
-import { EditAppointmentModal } from '@/components/doctor/modals/EditAppointmentModal';
+import  EditAppointmentModal  from '@/components/doctor/modals/EditAppointmentModal';
 import { EditDoctorModal } from '@/components/doctor/modals/EditDoctorModal';
 import { DoctorAvailabilityModal } from '@/components/doctor/modals/DoctorAvailabilityModal';
 import { DoctorExceptionsModal } from '@/components/doctor/modals/DoctorExceptionsModal';
