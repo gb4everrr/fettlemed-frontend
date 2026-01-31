@@ -74,30 +74,74 @@ export function NewAppointmentModal({
 
   useEffect(() => {
       const fetchModalAvailableSlots = async () => {
-          if (!modalSelectedDoctorId || !modalSelectedDate || !clinicId) {
-            setModalAvailableSlots([]);
-            return;
+      // 1. Basic Validation
+      if (!modalSelectedDoctorId || !modalSelectedDate || !clinicId) {
+        setModalAvailableSlots([]);
+        setModalDisplaySlots([]);
+        return;
+      }
+
+      try {
+        // Format Date manually to YYYY-MM-DD to avoid timezone shifts
+        const year = modalSelectedDate.getFullYear();
+        const month = String(modalSelectedDate.getMonth() + 1).padStart(2, '0');
+        const day = String(modalSelectedDate.getDate()).padStart(2, '0');
+        const dateStr = `${year}-${month}-${day}`;
+
+        // 2. Fetch Raw Slots from API
+        // FIX: Changed 'doctor_id' to 'clinic_doctor_id' to match backend requirements
+        const response = await api.get(`/appointments/slots`, {
+          params: {
+            clinic_id: clinicId,
+            clinic_doctor_id: modalSelectedDoctorId, 
+            date: dateStr
           }
-          
-          try {
-              const year = modalSelectedDate.getFullYear();
-              const month = String(modalSelectedDate.getMonth() + 1).padStart(2, '0');
-              const day = String(modalSelectedDate.getDate()).padStart(2, '0');
-              const formattedDate = `${year}-${month}-${day}`;
+        });
+
+        const rawSlots: AvailableSlot[] = response.data;
+        setModalAvailableSlots(rawSlots);
+
+        // 3. Generate 1-Hour Display Slots
+        const allGeneratedSlots = generateHourlySlots(rawSlots);
+
+        // 4. FILTER: Remove past slots if date is "Today"
+        // Use the clinicTimezone prop to determine "today"
+        const clinicTodayStr = new Date().toLocaleDateString('en-CA', { timeZone: clinicTimezone });
+        
+        let finalDisplaySlots = allGeneratedSlots;
+
+        // Compare the selected date string with the clinic's "today" string
+        if (dateStr === clinicTodayStr) {
+           // Get current time in Clinic Timezone
+           const now = new Date();
+           const timeFormatter = new Intl.DateTimeFormat('en-US', {
+             timeZone: clinicTimezone,
+             hour12: false,
+             hour: 'numeric',
+             minute: 'numeric'
+           });
+           
+           // timeFormatter returns "14:30"
+           const [currentHour, currentMinute] = timeFormatter.format(now).split(':').map(Number);
+
+           finalDisplaySlots = allGeneratedSlots.filter(slot => {
+              // slot.display_start_time is "09:00"
+              const [slotHour, slotMinute] = slot.display_start_time.split(':').map(Number);
               
-              const response = await api.get('/appointments/slots', {
-                  params: { 
-                      clinic_id: clinicId, 
-                      clinic_doctor_id: modalSelectedDoctorId, 
-                      date: formattedDate 
-                  },
-              });
-              setModalAvailableSlots(response.data);
-          } catch (err) {
-              console.error('Failed to fetch modal slots:', err);
-              setModalErrorMessage('Failed to load available slots');
-          }
-      };
+              if (slotHour > currentHour) return true;
+              if (slotHour === currentHour && slotMinute > currentMinute) return true;
+              return false;
+           });
+        }
+
+        setModalDisplaySlots(finalDisplaySlots);
+
+      } catch (error) {
+        console.error('Failed to fetch slots', error);
+        setModalAvailableSlots([]);
+        setModalDisplaySlots([]);
+      }
+    };
       
       fetchModalAvailableSlots();
   }, [modalSelectedDoctorId, modalSelectedDate, clinicId]);

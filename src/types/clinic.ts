@@ -11,7 +11,19 @@ export interface Appointment {
   datetime_end: string;
   status: number;
   notes: string | null;
-  patient?: { id: number; first_name: string; last_name: string };
+  // --- New Queue Fields ---
+  arrival_time: string | null;
+  appointment_type: number; // 0: Booked, 1: Walk-in, 2: Referral, 3: Emergency
+  priority_score: number;
+  is_priority: boolean;
+  // --- Updated Relations ---
+  patient?: { 
+    id: number; 
+    first_name: string; 
+    last_name: string;
+    dob?: string; // Added for age calculation
+    age?: number; // Added if your backend computes age via sequelize.literal
+  };
   doctor?: { id: number; first_name: string; last_name: string };
   invoice_id?: number | null; 
   clinic?: any;
@@ -21,6 +33,7 @@ export interface ClinicDoctor {
   id: number;
   first_name: string;
   last_name: string;
+  specialization?: string;
 }
 
 export interface ClinicPatient {
@@ -36,6 +49,7 @@ export interface ClinicPatient {
   gender?: string | null;
   allergies?: string[];
   chronic_conditions?: string[];
+  dob?: string;
 }
 
 export interface AvailableSlot {

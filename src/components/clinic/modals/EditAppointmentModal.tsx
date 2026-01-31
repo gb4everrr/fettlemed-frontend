@@ -370,6 +370,7 @@ export function EditAppointmentModal({
                       <div className="flex items-center text-sm text-gray-500 mt-3 mb-2"><Calendar className="h-4 w-4 mr-2" /><span className="font-medium">Appointment ID</span></div>
                       <p className="text-gray-800 font-medium">#{appointment.id}</p>
                     </div>
+                    
                   </div>
                   {appointment.notes && appointment.notes.includes('[Rescheduled from:') && (
                     <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
@@ -496,12 +497,12 @@ export function EditAppointmentModal({
             </div>
 
             {showCancelConfirm && (
-              <div className="fixed inset-0 bg-black bg-opacity-30 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
-                <Card className="max-w-md w-full">
+              <div className="fixed inset-0 bg-black/40 backdrop-blur-sm bg-opacity-30 flex items-center justify-center z-[60] p-4 ">
+                <Card className="max-w-md w-full rounded-2xl">
                   <div className="p-6">
                     <div className="flex items-center mb-4"><AlertCircle className="h-8 w-8 text-red-500 mr-3" /><h3 className="text-xl font-bold text-gray-800">Cancel Appointment?</h3></div>
                     <p className="text-gray-600 mb-6">Are you sure you want to cancel this appointment? This action cannot be undone.</p>
-                    <div className="flex gap-3"><Button variant="primary" onClick={handleCancel} disabled={isSaving} className="flex-1 bg-red-600 hover:bg-red-700">{isSaving ? 'Cancelling...' : 'Yes, Cancel Appointment'}</Button><Button variant="ghost" onClick={() => setShowCancelConfirm(false)} disabled={isSaving} className="flex-1">Keep Appointment</Button></div>
+                    <div className="flex gap-3"><Button variant="primary" shine onClick={handleCancel} disabled={isSaving} className="flex-1 bg-red-600 hover:bg-red-700">{isSaving ? 'Cancelling...' : 'Yes, Cancel Appointment'}</Button><Button variant="ghost" onClick={() => setShowCancelConfirm(false)} disabled={isSaving} className="flex-1">Keep Appointment</Button></div>
                   </div>
                 </Card>
               </div>
