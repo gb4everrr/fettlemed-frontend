@@ -18,7 +18,7 @@ interface WalkInModalProps {
   onRefreshList: () => void;
   clinicId: number;
   clinicTimezone: string;
-  doctors: ClinicDoctor[];
+  doctors?: ClinicDoctor[]; // Make optional since we'll fetch our own
 }
 
 export function WalkInModal({
@@ -26,11 +26,15 @@ export function WalkInModal({
   onRefreshList,
   clinicId,
   clinicTimezone,
-  doctors
+  doctors: doctorsProp
 }: WalkInModalProps) {
 
   const [isModalLoading, setIsModalLoading] = useState(false);
   const [walkInStep, setWalkInStep] = useState<'patient' | 'details'>('patient');
+  
+  // Fetch available doctors specifically for walk-ins
+  const [availableDoctors, setAvailableDoctors] = useState<ClinicDoctor[]>([]);
+  const [isDoctorsLoading, setIsDoctorsLoading] = useState(true);
 
   // Search State
   const [searchTerm, setSearchTerm] = useState('');
@@ -53,52 +57,30 @@ export function WalkInModal({
   const [modalNotes, setModalNotes] = useState('');
   const [isEmergency, setIsEmergency] = useState(false);
 
-  // --- FILTER: AVAILABLE DOCTORS (Strict) ---
-  const availableDoctors = doctors.filter(doc => {
-    const d = doc as any;
-    
-    // 1. Must be marked available today
-    if (!d.is_available_today) return false;
-
-    // 2. Check Shift Definition
-    const shiftStart = d.start_time || d.schedule_start; 
-    const shiftEnd = d.end_time || d.schedule_end; 
-
-    // FIX: If no shift times defined, DO NOT SHOW the doctor
-    if (!shiftStart || !shiftEnd) return false;
-
-    // 3. Strict Time Window Check
-    try {
-        const now = new Date();
-        const timeFormatter = new Intl.DateTimeFormat('en-US', {
-          timeZone: clinicTimezone,
-          hour12: false,
-          hour: 'numeric',
-          minute: 'numeric'
+  // Fetch doctors available RIGHT NOW when modal opens
+  useEffect(() => {
+    const fetchAvailableDoctors = async () => {
+      setIsDoctorsLoading(true);
+      try {
+        // Use the new dedicated endpoint for walk-in availability
+        const response = await api.get('/clinic-user/clinic-doctor/available-now', {
+          params: { clinic_id: clinicId }
         });
-        
-        const formattedNow = timeFormatter.format(now);
-        const [currentHour, currentMinute] = formattedNow.split(':').map(Number);
-        
-        const [startHour, startMinute] = shiftStart.split(':').map(Number);
-        const [endHour, endMinute] = shiftEnd.split(':').map(Number);
-
-        const currentTotal = (currentHour * 60) + currentMinute;
-        const startTotal = (startHour * 60) + startMinute;
-        const endTotal = (endHour * 60) + endMinute;
-
-        // If current time is NOT within the start-end window, hide doctor
-        if (currentTotal < startTotal || currentTotal > endTotal) {
-            return false;
+        setAvailableDoctors(response.data);
+      } catch (error) {
+        console.error('Failed to fetch available doctors:', error);
+        // Fallback to filtering the passed-in doctors prop if the new endpoint doesn't exist yet
+        if (doctorsProp) {
+          const filtered = doctorsProp.filter((doc: any) => doc.is_available_today);
+          setAvailableDoctors(filtered);
         }
-
-    } catch (err) {
-        console.error("Time calc error for Dr.", d.last_name, err);
-        return false; // Hide on error to be safe
-    }
-
-    return true;
-  });
+      } finally {
+        setIsDoctorsLoading(false);
+      }
+    };
+    
+    fetchAvailableDoctors();
+  }, [clinicId, doctorsProp]);
 
   // Search Logic
   useEffect(() => {
@@ -331,44 +313,51 @@ export function WalkInModal({
                 <div className="space-y-4">
                     <div>
                         <Label className="text-sm font-semibold text-gray-700 mb-2 block">Assign Doctor</Label>
-                        <div className="grid grid-cols-2 gap-3">
-                            {availableDoctors.map(doc => {
-                                const d = doc as any;
-                                const startTime = formatTimeDisplay(d.start_time || d.schedule_start);
-                                const endTime = formatTimeDisplay(d.end_time || d.schedule_end);
-                                const scheduleText = startTime && endTime ? `${startTime} - ${endTime}` : 'Available Today';
+                        
+                        {isDoctorsLoading ? (
+                            <div className="text-center py-8 text-gray-500">
+                                <p>Loading available doctors...</p>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-2 gap-3">
+                                {availableDoctors.map(doc => {
+                                    const d = doc as any;
+                                    const startTime = formatTimeDisplay(d.start_time || d.schedule_start);
+                                    const endTime = formatTimeDisplay(d.end_time || d.schedule_end);
+                                    const scheduleText = startTime && endTime ? `${startTime} - ${endTime}` : 'Available Now';
 
-                                return (
-                                    <div 
-                                        key={doc.id}
-                                        onClick={() => setSelectedDoctorId(String(doc.id))}
-                                        className={`
-                                            cursor-pointer p-3 rounded-lg border flex flex-col gap-1 transition-all
-                                            ${String(selectedDoctorId) === String(doc.id) 
-                                                ? 'border-primary-brand bg-primary-light/10 ring-1 ring-primary-brand' 
-                                                : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                                            }
-                                        `}
-                                    >
-                                        <div className="flex items-center gap-2">
-                                            <div className={`w-3 h-3 rounded-full flex-shrink-0 ${String(selectedDoctorId) === String(doc.id) ? 'bg-primary-brand' : 'bg-green-500'}`} />
-                                            <span className="font-medium text-gray-800">Dr. {doc.last_name}</span>
+                                    return (
+                                        <div 
+                                            key={doc.id}
+                                            onClick={() => setSelectedDoctorId(String(doc.id))}
+                                            className={`
+                                                cursor-pointer p-3 rounded-lg border flex flex-col gap-1 transition-all
+                                                ${String(selectedDoctorId) === String(doc.id) 
+                                                    ? 'border-primary-brand bg-primary-light/10 ring-1 ring-primary-brand' 
+                                                    : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                                                }
+                                            `}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <div className={`w-3 h-3 rounded-full flex-shrink-0 ${String(selectedDoctorId) === String(doc.id) ? 'bg-primary-brand' : 'bg-green-500'}`} />
+                                                <span className="font-medium text-gray-800">Dr. {doc.last_name}</span>
+                                            </div>
+                                            <div className="text-xs text-gray-500 pl-5 flex items-center gap-1">
+                                                <Clock className="w-3 h-3" />
+                                                {scheduleText}
+                                            </div>
                                         </div>
-                                        <div className="text-xs text-gray-500 pl-5 flex items-center gap-1">
-                                            <Clock className="w-3 h-3" />
-                                            {scheduleText}
-                                        </div>
+                                    );
+                                })}
+                                
+                                {availableDoctors.length === 0 && (
+                                    <div className="col-span-2 text-center text-red-800 py-4 bg-red-50 rounded-lg border border-red-100 text-sm">
+                                        <p className="font-semibold">No doctors available right now.</p>
+                                        <p className="text-xs mt-1">Please check doctor schedules or try again later.</p>
                                     </div>
-                                );
-                            })}
-                            
-                            {availableDoctors.length === 0 && (
-                                <div className="col-span-2 text-center text-red-800 py-4 bg-red-50 rounded-lg border border-red-100 text-sm">
-                                    <p className="font-semibold">No doctors available right now.</p>
-                                    <p className="text-xs mt-1">Please check doctor schedules or try again later.</p>
-                                </div>
-                            )}
-                        </div>
+                                )}
+                            </div>
+                        )}
                     </div>
 
                     <div>
