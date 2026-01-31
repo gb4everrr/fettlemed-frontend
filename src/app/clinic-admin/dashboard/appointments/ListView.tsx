@@ -17,7 +17,7 @@ interface ListViewProps {
   itemsPerPage: number;
   onAppointmentClick: (appointment: Appointment) => void;
   onPageChange: (page: number) => void;
-  onCheckIn: (id: number) => void;
+  onCheckIn?: (id: number) => void;
 }
 
 // HELPER: Format Time
@@ -281,17 +281,7 @@ function AppointmentList({ appointments, clinicTimezone, onAppointmentClick, onC
 
               {/* Right: Actions & Status */}
               <div className="flex items-center gap-3 mt-2 sm:mt-0 w-full sm:w-auto">
-                 {/* Check In Button */}
-                 {appointment.status === 1 && !appointment.arrival_time && (
-                   <Button 
-                     variant="outline" 
-                     size="sm" 
-                     className="flex-1 sm:flex-none text-blue-600 border-blue-200 hover:bg-blue-50"
-                     onClick={(e: any) => { e.stopPropagation(); onCheckIn(appointment.id); }}
-                   >
-                     Check In
-                   </Button>
-                )}
+                 
                 
                 {appointment.arrival_time && !isCompleted && !isCancelled && (
                     <span className="px-3 py-1 bg-green-50 text-green-700 text-xs font-medium rounded-full border border-green-100 flex items-center gap-1">
@@ -304,7 +294,7 @@ function AppointmentList({ appointments, clinicTimezone, onAppointmentClick, onC
               </div>
 
               {/* CHECK-IN BUTTON */}
-{showCheckIn && (
+{onCheckIn && showCheckIn && (
   <Button 
     variant="outline" 
     size="sm" 

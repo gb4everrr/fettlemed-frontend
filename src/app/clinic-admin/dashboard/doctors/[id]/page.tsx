@@ -23,7 +23,7 @@ import { Appointment } from '@/types/clinic';
 import { EditDoctorModal } from '@/components/clinic/modals/EditDoctorModal';
 import { DoctorAvailabilityModal } from '@/components/clinic/modals/DoctorAvailabilityModal';
 import { DoctorExceptionsModal } from '@/components/clinic/modals/DoctorExceptionsModal';
-import { EditAppointmentModal } from '@/components/clinic/modals/EditAppointmentModal'; // Import added
+import { EditAppointmentModal } from '@/components/clinic/modals/EditAppointmentModal';
 
 // Types
 interface ClinicDoctor {
@@ -90,7 +90,7 @@ export default function DoctorProfilePage() {
     const [isAvailabilityModalOpen, setIsAvailabilityModalOpen] = useState(false);
     const [isExceptionsModalOpen, setIsExceptionsModalOpen] = useState(false);
     
-    // --- Appointment Modal State (NEW) ---
+    // --- Appointment Modal State ---
     const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
     const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
 
@@ -101,6 +101,8 @@ export default function DoctorProfilePage() {
     const weekDays = getWeekDays(currentWeek);
     const [earliestHour, setEarliestHour] = useState<number>(8);
     const [latestHour, setLatestHour] = useState<number>(18);
+    
+    // REFIX: Moved useRef to top level
     const calendarRef = useRef<HTMLDivElement | null>(null);
     
     // Pagination & Filters
@@ -110,17 +112,17 @@ export default function DoctorProfilePage() {
 
     // Fetch Doctor Details
     const fetchDoctorDetails = async () => {
-        if (!user?.clinics?.[0]?.id) return;
-        const clinicId = user.clinics[0].id;
+        const clinicId = user?.clinics?.[0]?.id; // Safe Access
+        if (!clinicId) return;
+        
         try {
             const res = await api.get(`/clinic-user/clinic-doctor/${doctorId}`, { 
-                params: { clinic_id: clinicId } 
+                params: { clinic_id: clinicId } // Context Fix
             });
             setDoctor(res.data);
             
-            // Get Clinic Timezone
             const clinicRes = await api.get(`/clinic/${clinicId}`, { 
-                params: { clinic_id: clinicId } 
+                params: { clinic_id: clinicId } // Context Fix
             });
             if (clinicRes.data.timezone) setClinicTimezone(clinicRes.data.timezone);
 
@@ -131,15 +133,16 @@ export default function DoctorProfilePage() {
         }
     };
 
-    // Fetch Appointments (Filtered by THIS doctor)
+    // Fetch Appointments
     const fetchDoctorAppointments = async () => {
-        if (!user?.clinics?.[0]?.id) return;
-        const clinicId = user.clinics[0].id;
+        const clinicId = user?.clinics?.[0]?.id; // Safe Access
+        if (!clinicId) return;
+        
         try {
             const res = await api.get('/appointments', {
                 params: {
-                    clinic_id: clinicId,
-                    clinic_doctor_id: doctorId // Strict filter
+                    clinic_id: clinicId, // Context Fix
+                    clinic_doctor_id: doctorId
                 }
             });
             setAppointments(res.data);
@@ -155,38 +158,23 @@ export default function DoctorProfilePage() {
         }
     }, [user, doctorId]);
 
-    // --- Filter Logic for Appointments ---
-    const getFilteredAppointments = () => {
-        const now = new Date();
-        let filtered = appointments;
 
+
+    // Helper for filtered data
+    const filteredAppointments = (() => {
+        const now = new Date();
+        let filtered = [...appointments];
         if (apptFilterStatus === 'active') {
-            filtered = appointments.filter(apt => {
-                const endTime = new Date(apt.datetime_end);
-                return endTime >= now && apt.status !== 2 && apt.status !== 3;
-            });
+            filtered = appointments.filter(apt => new Date(apt.datetime_end) >= now && apt.status !== 2 && apt.status !== 3);
         } else if (apptFilterStatus === 'completed') {
-            filtered = appointments.filter(apt => {
-                const endTime = new Date(apt.datetime_end);
-                return endTime < now || apt.status === 2 || apt.status === 3;
-            });
+            filtered = appointments.filter(apt => new Date(apt.datetime_end) < now || apt.status === 2 || apt.status === 3);
         }
         return filtered.sort((a,b) => new Date(b.datetime_start).getTime() - new Date(a.datetime_start).getTime());
-    };
+    })();
 
-    const filteredAppointments = getFilteredAppointments();
     const paginatedAppointments = filteredAppointments.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
     const totalPages = Math.ceil(filteredAppointments.length / itemsPerPage);
 
-    const navigateWeek = (direction: "prev" | "next") => {
-        setCurrentWeek(prev => {
-            const n = new Date(prev);
-            n.setDate(prev.getDate() + (direction === "next" ? 7 : -7));
-            return n;
-        });
-    };
-
-    // --- HANDLER: Open Appointment Modal ---
     const handleAppointmentClick = (appointment: Appointment) => {
         setSelectedAppointment(appointment);
         setIsAppointmentModalOpen(true);
@@ -268,7 +256,7 @@ export default function DoctorProfilePage() {
                 {/* --- Content: Appointments Tab --- */}
                 {activeTab === 'appointments' && (
                     <div className="flex flex-col gap-6">
-                        {/* Toolbar */}
+                        {/* Toolbar Logic */}
                         <Card padding="sm" className="flex flex-col md:flex-row justify-between items-center gap-4">
                             <div className="flex bg-gray-100 rounded-lg p-1">
                                 <button onClick={() => setViewMode('list')} className={`flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === 'list' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}>
@@ -278,32 +266,21 @@ export default function DoctorProfilePage() {
                                     <CalendarDays className="h-4 w-4 mr-1" /> Calendar
                                 </button>
                             </div>
-
-                            <div className="flex items-center gap-2">
-                                <select 
-                                    className="border border-gray-300 rounded-md text-sm p-1.5"
-                                    value={apptFilterStatus}
-                                    onChange={(e) => { setApptFilterStatus(e.target.value as any); setCurrentPage(1); }}
-                                >
-                                    <option value="all">All Status</option>
-                                    <option value="active">Active</option>
-                                    <option value="completed">Completed</option>
-                                </select>
-                            </div>
                         </Card>
 
-                        {/* View Components */}
                         {viewMode === 'list' ? (
                             <ListView
                                 appointments={paginatedAppointments}
+                                doctors={doctor ? [doctor] : []} // Added doctors prop
                                 totalAppointments={filteredAppointments.length}
                                 clinicTimezone={clinicTimezone}
                                 activeTab={apptFilterStatus}
                                 currentPage={currentPage}
                                 totalPages={totalPages}
                                 itemsPerPage={itemsPerPage}
-                                onAppointmentClick={handleAppointmentClick} // Connected
+                                onAppointmentClick={handleAppointmentClick}
                                 onPageChange={setCurrentPage}
+                                
                             />
                         ) : (
                             <CalendarView
@@ -313,8 +290,12 @@ export default function DoctorProfilePage() {
                                 latestHour={latestHour}
                                 clinicTimezone={clinicTimezone}
                                 calendarRef={calendarRef}
-                                onAppointmentClick={handleAppointmentClick} // Connected
-                                onNavigateWeek={navigateWeek}
+                                onAppointmentClick={handleAppointmentClick}
+                                onNavigateWeek={(dir) => setCurrentWeek(prev => {
+                                    const n = new Date(prev);
+                                    n.setDate(prev.getDate() + (dir === "next" ? 7 : -7));
+                                    return n;
+                                })}
                                 onGoToToday={() => setCurrentWeek(new Date())}
                                 onExpandEarlier={() => setEarliestHour(h => Math.max(0, h - 1))}
                                 onExpandLater={() => setLatestHour(h => Math.min(24, h + 1))}
