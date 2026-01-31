@@ -78,6 +78,10 @@ interface Appointment {
   datetime_end: string;
   status: number;
   notes: string | null;
+  arrival_time: string | null;   // Was 'arrival_time?:'
+    appointment_type: number;      // Was 'string', changed to 'number'
+    priority_score: number;        
+    is_priority: boolean;
   doctor?: {
     id: number;
     first_name: string;
