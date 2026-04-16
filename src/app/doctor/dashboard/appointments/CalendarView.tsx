@@ -6,13 +6,14 @@ import Button from '@/components/ui/Button';
 import { Appointment } from '@/types/clinic';
 import { ChevronLeft, ChevronRight, RefreshCw, MapPin } from 'lucide-react';
 import { assignOverlapColumns, doctorColor, isRescheduled } from '@/lib/utils/appointments';
+import { toClinicDisplayDate } from '@/lib/utils/datetime';
 
 interface CalendarViewProps {
   appointments: Appointment[];
   weekDays: Date[];
   earliestHour: number;
   latestHour: number;
-  clinicTimezone: string; // Kept for prop compatibility, but we force UTC display
+  clinicTimezone: string; // Fallback for when an appointment has no clinic object
   calendarRef: React.RefObject<HTMLDivElement | null>;
   onAppointmentClick: (appointment: Appointment) => void;
   onNavigateWeek: (direction: "prev" | "next") => void;
@@ -21,15 +22,15 @@ interface CalendarViewProps {
   onExpandLater: () => void;
 }
 
-// 1. REPLACED: Use UTC formatting directly.
-// This ensures we display the time exactly as it exists in the DB string (e.g. 09:00Z -> 9:00 AM)
-const formatClinicTime = (dateString: string | Date) => {
+// Format a UTC ISO string in the appointment's own clinic timezone.
+// Falls back to the page-level clinicTimezone if the appointment has no clinic object.
+const formatApptTime = (dateString: string | Date, timeZone: string) => {
   const date = new Date(dateString);
   return new Intl.DateTimeFormat('en-US', {
     hour: 'numeric',
     minute: '2-digit',
     hour12: true,
-    timeZone: 'UTC', // FORCE UTC
+    timeZone,
   }).format(date);
 };
 
@@ -38,7 +39,7 @@ export default function CalendarView({
   weekDays,
   earliestHour,
   latestHour,
-  clinicTimezone, // Unused for calculation now, consistent with "everything is UTC"
+  clinicTimezone,
   calendarRef,
   onAppointmentClick,
   onNavigateWeek,
@@ -47,15 +48,22 @@ export default function CalendarView({
   onExpandLater,
 }: CalendarViewProps) {
 
-  // 2. UPDATED: Compare UTC dates to the Grid Day
+  // Resolve the effective timezone for a given appointment.
+  // Prefer the appointment's own clinic timezone (multi-clinic support);
+  // fall back to the page-level prop.
+  const getApptTimezone = (apt: Appointment) =>
+    (apt as any).clinic?.timezone || clinicTimezone || 'Asia/Kolkata';
+
+  // Match appointment to a calendar day column using the appointment's clinic timezone.
   const getAppointmentsForDay = (day: Date) => {
     return appointments.filter(apt => {
-      const aptDate = new Date(apt.datetime_start);
-      // Compare the UTC date parts of the appointment to the local date parts of the grid column
+      const tz = getApptTimezone(apt);
+      // Convert the UTC instant to the clinic's calendar date, then compare to grid column
+      const clinicDate = toClinicDisplayDate(apt.datetime_start, tz);
       return (
-        aptDate.getUTCDate() === day.getDate() &&
-        aptDate.getUTCMonth() === day.getMonth() &&
-        aptDate.getUTCFullYear() === day.getFullYear()
+        clinicDate.getFullYear() === day.getFullYear() &&
+        clinicDate.getMonth() === day.getMonth() &&
+        clinicDate.getDate() === day.getDate()
       );
     });
   };
@@ -63,27 +71,26 @@ export default function CalendarView({
   const hours = Array.from({ length: latestHour - earliestHour }, (_, i) => i + earliestHour);
   const totalMinutes = (latestHour - earliestHour) * 60;
 
-  // 3. UPDATED: Calculate position using direct UTC values
-  const computePositionStyle = (startOriginal: string, endOriginal: string) => {
-    const start = new Date(startOriginal);
-    const end = new Date(endOriginal);
+  // Calculate grid position using the appointment's clinic timezone hours.
+  const computePositionStyle = (startOriginal: string, endOriginal: string, timeZone: string) => {
+    const clinicStart = toClinicDisplayDate(startOriginal, timeZone);
+    const clinicEnd = toClinicDisplayDate(endOriginal, timeZone);
 
-    // Use getUTCHours/Minutes to ignore browser/clinic timezone offsets
-    const startMinutes = (start.getUTCHours() - earliestHour) * 60 + start.getUTCMinutes();
-    const durationMin = (end.getTime() - start.getTime()) / (1000 * 60);
-    
+    const startMinutes = (clinicStart.getHours() - earliestHour) * 60 + clinicStart.getMinutes();
+    const durationMin = (clinicEnd.getTime() - clinicStart.getTime()) / (1000 * 60);
+
     const top = (startMinutes / totalMinutes) * 100;
     const height = (durationMin / totalMinutes) * 100;
-    
-    return { 
-      top: `${Math.max(0, Math.min(100, top))}%`, 
-      height: `${Math.max(2, Math.min(100 - top, height))}%` 
+
+    return {
+      top: `${Math.max(0, Math.min(100, top))}%`,
+      height: `${Math.max(2, Math.min(100 - top, height))}%`
     };
   };
 
   return (
     <Card padding="lg" className="shadow-lg">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           <button onClick={() => onNavigateWeek('prev')} className="p-2 rounded-full hover:bg-gray-100 transition-colors"><ChevronLeft className="h-5 w-5" /></button>
           <button onClick={() => onNavigateWeek('next')} className="p-2 rounded-full hover:bg-gray-100 transition-colors"><ChevronRight className="h-5 w-5" /></button>
@@ -140,19 +147,18 @@ export default function CalendarView({
                   ))}
 
                   {appts.map((a) => {
-                    // Check against UTC hours
-                    const startHours = new Date(a.datetime_start).getUTCHours();
-                    const endHours = new Date(a.datetime_end).getUTCHours();
+                    const apptTz = getApptTimezone(a);
+                    const clinicStart = toClinicDisplayDate(a.datetime_start, apptTz);
+                    const clinicEnd = toClinicDisplayDate(a.datetime_end, apptTz);
 
-                    if (endHours < earliestHour || startHours >= latestHour) return null;
+                    if (clinicEnd.getHours() < earliestHour || clinicStart.getHours() >= latestHour) return null;
 
-                    const pos = computePositionStyle(a.datetime_start, a.datetime_end);
+                    const pos = computePositionStyle(a.datetime_start, a.datetime_end, apptTz);
                     const colInfo = overlapMap.get(a.id) || { col: 0, colsCount: 1 };
                     const widthPercent = 100 / colInfo.colsCount;
                     const leftPercent = colInfo.col * widthPercent;
                     const color = doctorColor(a.clinic_doctor_id ?? a.doctor?.id);
-                    // Format time using pure UTC
-                    const timeRange = `${formatClinicTime(a.datetime_start)} - ${formatClinicTime(a.datetime_end)}`;
+                    const timeRange = `${formatApptTime(a.datetime_start, apptTz)} - ${formatApptTime(a.datetime_end, apptTz)}`;
 
                     return (
                       <div 

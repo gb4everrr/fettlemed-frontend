@@ -141,21 +141,24 @@ export function WalkInModal({
 
   const handleAddToQueue = async () => {
     if (!selectedPatient || !selectedDoctorId) return;
-    
+
     setIsModalLoading(true);
     try {
+      // new Date() is always a UTC instant — correct for backend storage regardless of browser timezone.
+      // The backend sets arrival_time: new Date() server-side for walk-ins (appointment_type 1 or 3).
       const now = new Date();
-      
+
       const payload = {
         clinic_id: clinicId,
         clinic_doctor_id: parseInt(selectedDoctorId),
         clinic_patient_id: selectedPatient.id,
         slot_id: null,
         datetime_start: now.toISOString(),
-        datetime_end: new Date(now.getTime() + 15*60000).toISOString(),
+        datetime_end: new Date(now.getTime() + 15 * 60000).toISOString(),
         notes: modalNotes,
         appointment_type: isEmergency ? 3 : 1, // 3=Emergency, 1=Walk-in
         status: 1, // Waiting
+        // arrival_time is set server-side for walk-ins; sending it here as well for redundancy
         arrival_time: now.toISOString()
       };
 
@@ -169,13 +172,23 @@ export function WalkInModal({
     }
   };
 
-  // Helper to format "09:00:00" -> "9:00 AM"
+  // Format "09:00:00" -> "9:00 AM" displayed in the clinic's timezone.
+  // The time strings from the doctor schedule are local clinic times, so we
+  // interpret them against today's date in the clinic timezone for display only.
   const formatTimeDisplay = (timeStr: string) => {
-      if (!timeStr) return '';
-      const [h, m] = timeStr.split(':');
-      const date = new Date();
-      date.setHours(parseInt(h), parseInt(m));
-      return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    if (!timeStr) return '';
+    const [h, m] = timeStr.split(':');
+    // Build a UTC date for today at the given HH:mm in the clinic timezone,
+    // then format it back in the clinic timezone for display.
+    const now = new Date();
+    const clinicDateStr = new Intl.DateTimeFormat('en-CA', { timeZone: clinicTimezone }).format(now);
+    const utcEquivalent = new Date(`${clinicDateStr}T${h.padStart(2,'0')}:${m.padStart(2,'0')}:00`);
+    return new Intl.DateTimeFormat('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+      timeZone: clinicTimezone,
+    }).format(utcEquivalent);
   };
 
   return (

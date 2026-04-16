@@ -28,7 +28,10 @@ export default function LoginPage() {
     dispatch(authRequest());
 
     try {
-      const response = await api.post('/auth/login', { email, password }); 
+      const response = await api.post('/auth/login', { 
+  email: email.toLowerCase().trim(), 
+  password 
+});
       const { token, user } = response.data;
       
       if (typeof window !== 'undefined') {

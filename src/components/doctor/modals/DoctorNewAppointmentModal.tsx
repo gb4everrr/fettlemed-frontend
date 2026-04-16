@@ -1,4 +1,4 @@
-// src/components/doctor/modals/NewAppointmentModal.tsx
+// src/components/doctor/modals/DoctorNewAppointmentModal.tsx
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -33,7 +33,6 @@ interface NewAppointmentModalProps {
   
   // Context from parent page
   selectedClinicId: number; // -1 for "All Clinics"
-  viewScope: 'my' | 'clinic';
   associatedClinics: ClinicOption[];
   
   // Current user info
@@ -42,6 +41,11 @@ interface NewAppointmentModalProps {
   
   // Permission flag
   canBookAppointments: boolean;
+
+  // ── Optional prefill (used by the "Reopen" flow from EditAppointmentModal) ──
+  prefillDoctorId?: number;
+  prefillPatientId?: number;
+  prefillNotes?: string;
 }
 
 const PRIVILEGED_ROLES = ['OWNER', 'CLINIC_ADMIN', 'DOCTOR_OWNER', 'DOCTOR_PARTNER'];
@@ -50,11 +54,13 @@ export function DoctorNewAppointmentModal({
   onClose,
   onRefreshList,
   selectedClinicId,
-  viewScope,
   associatedClinics,
   currentDoctorId,
   currentDoctorName,
-  canBookAppointments
+  canBookAppointments,
+  prefillDoctorId,
+  prefillPatientId,
+  prefillNotes = '',
 }: NewAppointmentModalProps) {
 
   // Filter out clinics where user doesn't have booking permissions
@@ -66,10 +72,9 @@ export function DoctorNewAppointmentModal({
   const [modalSuccessMessage, setModalSuccessMessage] = useState<string | null>(null);
   const [modalErrorMessage, setModalErrorMessage] = useState<string | null>(null);
 
-  // Clinic Selection - Always allow selection from available clinics
-  const [modalSelectedClinicId, setModalSelectedClinicId] = useState<number>(
-    bookableClinics[0]?.id || -1
-  );
+  // Clinic Selection - default to the appointment's clinic if provided, else first bookable
+  const defaultClinicId = selectedClinicId !== -1 ? selectedClinicId : (bookableClinics[0]?.id || -1);
+  const [modalSelectedClinicId, setModalSelectedClinicId] = useState<number>(defaultClinicId);
 
   // Core Form State
   const [modalSelectedDoctorId, setModalSelectedDoctorId] = useState('');
@@ -78,7 +83,7 @@ export function DoctorNewAppointmentModal({
   const [modalAvailableSlots, setModalAvailableSlots] = useState<AvailableSlot[]>([]);
   const [modalDisplaySlots, setModalDisplaySlots] = useState<DisplaySlot[]>([]);
   const [modalSelectedDisplaySlot, setModalSelectedDisplaySlot] = useState<DisplaySlot | null>(null);
-  const [modalNotes, setModalNotes] = useState('');
+  const [modalNotes, setModalNotes] = useState(prefillNotes);
   
   // Calendar State
   const [modalCurrentMonth, setModalCurrentMonth] = useState(new Date().getMonth());
@@ -100,8 +105,11 @@ export function DoctorNewAppointmentModal({
   const currentClinic = associatedClinics.find(c => c.id === modalSelectedClinicId);
   const clinicTimezone = currentClinic?.timezone || 'UTC';
   const showClinicSelector = bookableClinics.length > 1;
-  const showDoctorSelector = viewScope === 'clinic';
-  const isMyView = viewScope === 'my';
+
+  // Per-clinic role logic: privileged = full dropdown (own name first), visiting = locked to self
+  const isPrivilegedAtSelectedClinic = PRIVILEGED_ROLES.includes(
+    currentClinic?.role?.toUpperCase() || ''
+  );
 
   // Check if modal should even be shown
   if (!canBookAppointments && selectedClinicId !== -1) {
@@ -201,20 +209,28 @@ export function DoctorNewAppointmentModal({
     fetchClinicData();
   }, [modalSelectedClinicId]);
 
-  // Auto-set doctor in "My View"
+  // Auto-set doctor: prefer prefillDoctorId, else fall back to currentDoctorId
   useEffect(() => {
-    if (isMyView && currentDoctorId) {
+    const doctorToSelect = prefillDoctorId || currentDoctorId;
+    if (doctorToSelect) {
+      setModalSelectedDoctorId(String(doctorToSelect));
+    } else if (!isPrivilegedAtSelectedClinic && currentDoctorId) {
       setModalSelectedDoctorId(String(currentDoctorId));
     }
-  }, [isMyView, currentDoctorId]);
+  }, [isPrivilegedAtSelectedClinic, currentDoctorId, prefillDoctorId]);
 
-  // Reset doctor selection when clinic changes
+  // Auto-set patient if prefilled
   useEffect(() => {
-    if (!isMyView) {
-      setModalSelectedDoctorId('');
+    if (prefillPatientId) {
+      setModalSelectedPatientId(String(prefillPatientId));
     }
+  }, [prefillPatientId]);
+
+  // Reset doctor selection when clinic changes (re-evaluate role for new clinic)
+  useEffect(() => {
+    setModalSelectedDoctorId('');
     setModalSelectedDisplaySlot(null);
-  }, [modalSelectedClinicId, isMyView]);
+  }, [modalSelectedClinicId]);
 
   // Fetch Available Slots
   useEffect(() => {
@@ -298,9 +314,16 @@ export function DoctorNewAppointmentModal({
   };
 
   const daysInModalMonth = getDaysInMonth(modalCurrentYear, modalCurrentMonth);
-  const filteredModalDoctors = clinicDoctors.filter(doctor => 
-    `${doctor.first_name} ${doctor.last_name}`.toLowerCase().includes(modalDoctorSearchText.toLowerCase())
-  );
+  const filteredModalDoctors = clinicDoctors
+    .filter(doctor => 
+      `${doctor.first_name} ${doctor.last_name}`.toLowerCase().includes(modalDoctorSearchText.toLowerCase())
+    )
+    .sort((a, b) => {
+      // Own doctor always appears first
+      if (a.id === currentDoctorId) return -1;
+      if (b.id === currentDoctorId) return 1;
+      return 0;
+    });
   const filteredModalPatients = clinicPatients.filter(patient => 
     `${patient.first_name} ${patient.last_name}`.toLowerCase().includes(modalPatientSearchText.toLowerCase())
   );
@@ -309,11 +332,20 @@ export function DoctorNewAppointmentModal({
   todayForCalendar.setHours(0, 0, 0, 0);
 
   return (
-    <div className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center p-4 z-50 overflow-y-auto" onClick={onClose}>
+    <div className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center p-4 z-[70] overflow-y-auto" onClick={onClose}>
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl my-8 border border-gray-200" onClick={(e) => e.stopPropagation()}>
         <div className="p-6 border-b border-gray-200">
           <div className="flex justify-between items-center">
-            <h2 className="text-2xl font-bold text-gray-800">Book New Appointment</h2>
+            <div>
+              <h2 className="text-2xl font-bold text-gray-800">Book New Appointment</h2>
+              {/* Reopen context hint */}
+              {prefillDoctorId && prefillPatientId && (
+                <p className="text-sm text-amber-600 mt-1 flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" />
+                  Reopening cancelled appointment — doctor &amp; patient pre-selected
+                </p>
+              )}
+            </div>
             <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
               <X className="h-6 w-6" />
             </button>
@@ -380,12 +412,14 @@ export function DoctorNewAppointmentModal({
               )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Doctor Selection (Clinic View only) */}
-                {showDoctorSelector && (
-                  <div>
-                    <Label htmlFor="doctor-search-modal" className="font-semibold text-gray-700 mb-2">
-                      1. Select Doctor
-                    </Label>
+                {/* Doctor Selection - always shown, behaviour varies by role */}
+                <div>
+                  <Label htmlFor="doctor-search-modal" className="font-semibold text-gray-700 mb-2">
+                    1. Select Doctor
+                  </Label>
+
+                  {isPrivilegedAtSelectedClinic ? (
+                    /* Privileged: full dropdown, own name pre-selected and listed first */
                     <div className="relative">
                       <Input
                         id="doctor-search-modal"
@@ -408,28 +442,24 @@ export function DoctorNewAppointmentModal({
                         {filteredModalDoctors.map(doctor => (
                           <option key={doctor.id} value={doctor.id}>
                             {doctor.first_name} {doctor.last_name}
+                            {doctor.id === currentDoctorId ? ' (You)' : ''}
                           </option>
                         ))}
                       </select>
                     </div>
-                  </div>
-                )}
-
-                {/* Doctor Display (My View) */}
-                {isMyView && (
-                  <div>
-                    <Label className="font-semibold text-gray-700 mb-2">1. Doctor</Label>
+                  ) : (
+                    /* Visiting: locked to own name */
                     <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
                       <p className="text-sm font-medium text-blue-900">{currentDoctorName}</p>
                       <p className="text-xs text-blue-600">Booking for yourself</p>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
 
                 {/* Patient Selection */}
                 <div>
                   <Label htmlFor="patient-search-modal" className="font-semibold text-gray-700 mb-2">
-                    {showDoctorSelector ? '2' : '1'}. Select Patient
+                    2. Select Patient
                   </Label>
                   <div className="relative">
                     <Input
@@ -461,7 +491,7 @@ export function DoctorNewAppointmentModal({
               {/* Date and Time Selection */}
               <div>
                 <Label className="font-semibold text-gray-700 mb-2">
-                  {showDoctorSelector ? '3' : '2'}. Select Date and Time Slot
+                  3. Select Date and Time Slot
                 </Label>
                 <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
                   <div className="flex justify-between items-center mb-4">
@@ -557,7 +587,7 @@ export function DoctorNewAppointmentModal({
               {/* Notes */}
               <div>
                 <Label htmlFor="notes-modal" className="font-semibold text-gray-700 mb-2">
-                  {showDoctorSelector ? '4' : '3'}. Add Notes (Optional)
+                  4. Add Notes (Optional)
                 </Label>
                 <textarea
                   id="notes-modal"

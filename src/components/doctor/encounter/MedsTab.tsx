@@ -1,11 +1,19 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import { Pill, Search, Plus, Trash2, Clock, AlertCircle } from 'lucide-react';
+import { Pill, Search, Plus, Trash2, Clock, AlertCircle, ChevronLeft, Ban } from 'lucide-react';
 // @ts-ignore
 import api from '@/services/api';
 import Button from '@/components/ui/Button';
 
-export const MedsTab = ({ appointment, user, clinicId }: any) => {
+export const MedsTab = ({
+  appointment,
+  user,
+  clinicId,
+  onBack,
+  hasBack = false,
+  /** When true the tab is fully read-only regardless of server permissions */
+  isCancelled = false,
+}: any) => {
   const [meds, setMeds] = useState<any[]>([]);
   const [permissions, setPermissions] = useState<{can_edit?: boolean}>({ can_edit: false });
   
@@ -21,7 +29,8 @@ export const MedsTab = ({ appointment, user, clinicId }: any) => {
     instructions: '' 
   });
 
-  const canEdit = permissions?.can_edit === true;
+  // Respect cancellation — never allow editing
+  const canEdit = !isCancelled && permissions?.can_edit === true;
 
   useEffect(() => {
     if (appointment?.id && clinicId) {
@@ -44,6 +53,7 @@ export const MedsTab = ({ appointment, user, clinicId }: any) => {
   };
 
   const handleSearch = async (val: string) => {
+    if (!canEdit) return;
     setSearch(val);
     setForm({ ...form, drug_name: val }); 
     if(val.length < 2) return setSearchResults([]);
@@ -62,6 +72,7 @@ export const MedsTab = ({ appointment, user, clinicId }: any) => {
   };
 
   const selectDrug = (drug: any) => {
+    if (!canEdit) return;
     setForm({
       ...form,
       drug_catalog_id: drug.id,
@@ -74,7 +85,7 @@ export const MedsTab = ({ appointment, user, clinicId }: any) => {
   };
 
   const addMed = async () => {
-    if(!form.drug_name) return;
+    if(!canEdit || !form.drug_name) return;
     try {
         await api.post('/prescriptions/add', { 
             ...form, 
@@ -92,6 +103,7 @@ export const MedsTab = ({ appointment, user, clinicId }: any) => {
   };
 
   const deleteMed = async (id: number) => {
+    if(!canEdit) return;
     if(!confirm("Remove this medicine?")) return;
     try {
         await api.delete(`/prescriptions/${id}`, {
@@ -104,16 +116,21 @@ export const MedsTab = ({ appointment, user, clinicId }: any) => {
   };
 
   return (
-    <div className="h-full flex flex-col space-y-6">
+    <div className="h-full flex flex-col space-y-6 pb-24">
       {/* HEADER */}
       <div className="flex items-center gap-2 pb-4 border-b shrink-0">
         <Pill className="w-5 h-5 text-var(--color-primary-brand)" />
         <h2 className="text-xl font-semibold text-gray-800">Prescription</h2>
+        {isCancelled && (
+          <span className="ml-auto flex items-center gap-1.5 text-xs font-semibold text-red-600 bg-red-50 border border-red-200 px-3 py-1 rounded-full">
+            <Ban className="w-3 h-3" /> Read-only
+          </span>
+        )}
       </div>
 
-      {/* ADD FORM */}
+      {/* ADD FORM — only shown when canEdit */}
       {canEdit ? (
-        <div className=" p-5 rounded-xl border border-emerald-100 relative z-20 shrink-0">
+        <div className="p-5 rounded-xl border border-emerald-100 relative z-20 shrink-0">
           <div className="grid grid-cols-12 gap-3 items-end">
             <div className="col-span-4 relative">
               <label className="text-xs font-semibold text-emerald-800 mb-1 block">Drug Name</label>
@@ -154,8 +171,11 @@ export const MedsTab = ({ appointment, user, clinicId }: any) => {
           </div>
         </div>
       ) : (
-        <div className="bg-gray-50 p-4 rounded-lg text-sm text-gray-500 flex items-center gap-2 border border-gray-200">
-           <AlertCircle className="w-4 h-4" /> View-only: Only the assigned doctor can prescribe medications.
+        <div className={`p-4 rounded-lg text-sm flex items-center gap-2 border ${isCancelled ? 'bg-red-50 border-red-200 text-red-600' : 'bg-gray-50 border-gray-200 text-gray-500'}`}>
+           <AlertCircle className="w-4 h-4 shrink-0" />
+           {isCancelled
+             ? 'Appointment cancelled — prescriptions are locked and cannot be modified.'
+             : 'View-only: Only the assigned doctor can prescribe medications.'}
         </div>
       )}
 
@@ -179,7 +199,7 @@ export const MedsTab = ({ appointment, user, clinicId }: any) => {
                    <th className="p-3 font-semibold">Dose</th>
                    <th className="p-3 font-semibold">Frequency</th>
                    <th className="p-3 font-semibold">Duration</th>
-                   <th className="p-3 text-right font-semibold">Action</th>
+                   {canEdit && <th className="p-3 text-right font-semibold">Action</th>}
                  </tr>
                </thead>
                <tbody className="divide-y divide-gray-100">
@@ -196,8 +216,8 @@ export const MedsTab = ({ appointment, user, clinicId }: any) => {
                         </span>
                      </td>
                      <td className="p-3 text-gray-600">{m.duration}</td>
-                     <td className="p-3 text-right">
-                        {canEdit && (
+                     {canEdit && (
+                       <td className="p-3 text-right">
                           <button 
                             onClick={() => deleteMed(m.id)} 
                             className="text-gray-400 hover:text-red-500 p-1.5 hover:bg-red-50 rounded transition-colors"
@@ -205,8 +225,8 @@ export const MedsTab = ({ appointment, user, clinicId }: any) => {
                           >
                             <Trash2 className="w-4 h-4"/>
                           </button>
-                        )}
-                     </td>
+                       </td>
+                     )}
                    </tr>
                  ))}
                </tbody>

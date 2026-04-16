@@ -175,8 +175,11 @@ const canBookAppointments = useMemo(() => {
   useEffect(() => {
     // Determine Effective Role for Redux
     let effectiveRole = 'DOCTOR_VISITING';
-    let timezone = 'UTC';
     let localDoctorId = 0;
+    // "All Clinics" view: use the first clinic's timezone as page-level fallback.
+    // Each appointment's CalendarView/ListView already reads appointment.clinic.timezone
+    // directly, so this fallback only matters if clinic data is somehow missing.
+    let timezone = associatedClinics[0]?.timezone || 'Asia/Kolkata';
 
     if (selectedClinicId === -1) {
         // "All Clinics": Grant highest permissions possessed
@@ -189,7 +192,7 @@ const canBookAppointments = useMemo(() => {
         const current = associatedClinics.find(c => c.id === selectedClinicId);
         if (current) {
             effectiveRole = current.role;
-            timezone = current.timezone || 'UTC';
+            timezone = current.timezone || 'Asia/Kolkata';
         }
     }
 
@@ -375,9 +378,37 @@ const fetchAppointments = async () => {
       return true;
     });
 
-    // Client-side Doctor/Patient Filter (if filters set)
+    // Date range filter (client-side guard — catches cases where API returns extra data)
+    if (filters.startDate) {
+      const start = new Date(filters.startDate);
+      start.setUTCHours(0, 0, 0, 0);
+      filtered = filtered.filter(apt => new Date(apt.datetime_start) >= start);
+    }
+    if (filters.endDate) {
+      const end = new Date(filters.endDate);
+      end.setUTCHours(23, 59, 59, 999);
+      filtered = filtered.filter(apt => new Date(apt.datetime_start) <= end);
+    }
+
+    // Doctor filter — works for both my-scope and clinic-scope
+    if (filters.clinic_doctor_id) {
+      filtered = filtered.filter((a: any) => {
+        // clinic_doctor_id is the join-table ID; doctor?.id is the user-level ID
+        return (
+          String(a.clinic_doctor_id) === filters.clinic_doctor_id ||
+          String(a.doctor?.id) === filters.clinic_doctor_id
+        );
+      });
+    }
+
+    // Patient filter — check both the FK field and the nested patient object
     if (filters.clinic_patient_id) {
-        filtered = filtered.filter((a: any) => String(a.clinic_patient_id) === filters.clinic_patient_id);
+      filtered = filtered.filter((a: any) => {
+        return (
+          String(a.clinic_patient_id) === filters.clinic_patient_id ||
+          String(a.patient?.id) === filters.clinic_patient_id
+        );
+      });
     }
 
     return filtered;
@@ -395,10 +426,12 @@ const fetchAppointments = async () => {
 
   const handleFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
       setFilters(prev => ({...prev, [e.target.name]: e.target.value}));
+      setCurrentPage(1);
   };
 
   const toggleStatusFilter = (key: keyof typeof statusFilters) => {
       setStatusFilters(prev => ({...prev, [key]: !prev[key]}));
+      setCurrentPage(1);
   };
 
   // --- RENDER ---
@@ -517,9 +550,9 @@ const fetchAppointments = async () => {
         <Card className="shadow-md mb-6 relative z-10">
            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between p-4 border-b border-gray-200 gap-4">
                 <nav className="flex space-x-6">
-                  <button onClick={() => setActiveTab('active')} className={`pb-2 border-b-2 font-medium text-sm ${activeTab === 'active' ? 'border-(--color-primary-brand) text-(--color-primary-brand)' : 'border-transparent text-gray-500'}`}>Active</button>
-                  <button onClick={() => setActiveTab('all')} className={`pb-2 border-b-2 font-medium text-sm ${activeTab === 'all' ? 'border-(--color-primary-brand) text-(--color-primary-brand)' : 'border-transparent text-gray-500'}`}>All</button>
-                  <button onClick={() => setActiveTab('completed')} className={`pb-2 border-b-2 font-medium text-sm ${activeTab === 'completed' ? 'border-(--color-primary-brand) text-(--color-primary-brand)' : 'border-transparent text-gray-500'}`}>History</button>
+                  <button onClick={() => { setActiveTab('active'); setCurrentPage(1); }} className={`pb-2 border-b-2 font-medium text-sm ${activeTab === 'active' ? 'border-(--color-primary-brand) text-(--color-primary-brand)' : 'border-transparent text-gray-500'}`}>Active</button>
+                  <button onClick={() => { setActiveTab('all'); setCurrentPage(1); }} className={`pb-2 border-b-2 font-medium text-sm ${activeTab === 'all' ? 'border-(--color-primary-brand) text-(--color-primary-brand)' : 'border-transparent text-gray-500'}`}>All</button>
+                  <button onClick={() => { setActiveTab('completed'); setCurrentPage(1); }} className={`pb-2 border-b-2 font-medium text-sm ${activeTab === 'completed' ? 'border-(--color-primary-brand) text-(--color-primary-brand)' : 'border-transparent text-gray-500'}`}>History</button>
                 </nav>
                 
                 <div className="flex flex-wrap gap-2">
@@ -572,22 +605,16 @@ const fetchAppointments = async () => {
     label="Start Date"
     value={filters.startDate ? new Date(filters.startDate) : null}
     onChange={(d) => {
-        if (d) {
-            setFilters(prev => ({...prev, startDate: d.toISOString().split('T')[0]}));
-        } else {
-            setFilters(prev => ({...prev, startDate: ''}));
-        }
+        setFilters(prev => ({...prev, startDate: d ? d.toISOString().split('T')[0] : ''}));
+        setCurrentPage(1);
     }}
 />
 <DatePicker
     label="End Date"
     value={filters.endDate ? new Date(filters.endDate) : null}
     onChange={(d) => {
-        if (d) {
-            setFilters(prev => ({...prev, endDate: d.toISOString().split('T')[0]}));
-        } else {
-            setFilters(prev => ({...prev, endDate: ''}));
-        }
+        setFilters(prev => ({...prev, endDate: d ? d.toISOString().split('T')[0] : ''}));
+        setCurrentPage(1);
     }}
 />
                     </div>
@@ -659,6 +686,11 @@ const fetchAppointments = async () => {
             clinicTimezone={context.timezone}
             user={user}
             role={context.role}
+            // Passed so the "Reopen / Book Again" flow inside the modal can open DoctorNewAppointmentModal
+            associatedClinics={associatedClinics}
+            currentDoctorId={context.localDoctorId || 0}
+            currentDoctorName={`${user?.first_name || ''} ${user?.last_name || ''}`}
+            canBookAppointments={canBookAppointments}
         />
       )}
 
@@ -667,7 +699,6 @@ const fetchAppointments = async () => {
     onClose={() => setIsNewAppointmentModalOpen(false)}
     onRefreshList={fetchAppointments}
     selectedClinicId={selectedClinicId}
-    viewScope={viewScope}
     associatedClinics={associatedClinics}
     currentDoctorId={context.localDoctorId || 0}
     currentDoctorName={`${user?.first_name || ''} ${user?.last_name || ''}`}

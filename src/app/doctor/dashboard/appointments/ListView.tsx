@@ -5,13 +5,12 @@ import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import { Appointment } from '@/types/clinic';
 import { Calendar, Clock, Edit, RefreshCw, MapPin } from 'lucide-react';
-// REMOVED: formatDateTime (We now handle formatting locally to force UTC)
 import { isRescheduled, getRescheduledFromTime } from '@/lib/utils/appointments';
 
 interface ListViewProps {
   appointments: Appointment[];
   totalAppointments: number;
-  clinicTimezone: string; // Kept for prop interface, but we force UTC display
+  clinicTimezone: string; // Fallback when appointment has no clinic object
   activeTab: string;
   currentPage: number;
   totalPages: number;
@@ -20,8 +19,8 @@ interface ListViewProps {
   onPageChange: (page: number) => void;
 }
 
-// 1. NEW: Local formatter forcing UTC
-const formatClinicTime = (dateString: string | Date) => {
+// Format a UTC ISO string using the appointment's own clinic timezone.
+const formatApptTime = (dateString: string | Date, timeZone: string) => {
   const date = new Date(dateString);
   return new Intl.DateTimeFormat('en-US', {
     month: 'short',
@@ -30,7 +29,7 @@ const formatClinicTime = (dateString: string | Date) => {
     hour: 'numeric',
     minute: '2-digit',
     hour12: true,
-    timeZone: 'UTC', // FORCE UTC
+    timeZone,
   }).format(date);
 };
 
@@ -45,7 +44,10 @@ export default function ListView({
   onAppointmentClick,
   onPageChange,
 }: ListViewProps) {
-  
+
+  const getApptTimezone = (apt: Appointment) =>
+    (apt as any).clinic?.timezone || clinicTimezone || 'Asia/Kolkata';
+
   return (
     <Card padding="lg" className="shadow-lg">
       <h2 className="text-2xl font-bold mb-4 flex items-center">
@@ -65,6 +67,7 @@ export default function ListView({
             {appointments.map((appointment) => {
               const rescheduled = isRescheduled(appointment);
               const originalTime = getRescheduledFromTime(appointment);
+              const apptTz = getApptTimezone(appointment);
               return (
                 <li key={appointment.id} className="p-5 bg-white rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
                   <div className="flex justify-between items-start">
@@ -94,8 +97,7 @@ export default function ListView({
                       <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <h3 className="text-lg font-bold text-gray-800">Appointment Time</h3>
-                          {/* 2. REPLACED: formatDateTime with formatClinicTime */}
-                          <p className="text-sm text-gray-600 font-medium">{formatClinicTime(appointment.datetime_start)}</p>
+                          <p className="text-sm text-gray-600 font-medium">{formatApptTime(appointment.datetime_start, apptTz)}</p>
                           {rescheduled && originalTime && (<p className="text-xs text-amber-600 mt-1 flex items-center"><RefreshCw className="h-3 w-3 mr-1" />Originally scheduled: {originalTime}</p>)}
                         </div>
                         

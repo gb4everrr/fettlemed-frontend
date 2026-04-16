@@ -57,25 +57,23 @@ type ModalType = 'patient' | 'invoice' | 'appointment' | null;
 type DateFilterType = 'week' | 'month' | 'year' | 'custom';
 
 // --- Helper functions ---
-const toYYYYMMDD = (date: Date) => {
-    return date.toISOString().split('T')[0];
+
+// Returns YYYY-MM-DD for a Date in the clinic's timezone.
+// Uses en-CA locale which natively formats as YYYY-MM-DD.
+const toClinicYYYYMMDD = (date: Date, timeZone: string): string => {
+    return new Intl.DateTimeFormat('en-CA', { timeZone }).format(date);
 };
 
-const getStartDate = (filter: DateFilterType): Date => {
-    const end = new Date();
-    const start = new Date();
+// Returns a YYYY-MM-DD string for N days/months/years ago in the clinic's timezone.
+const getStartDateStr = (filter: DateFilterType, timeZone: string): string => {
+    const now = new Date();
+    const offset = new Date(now);
     switch (filter) {
-        case 'week':
-            start.setDate(end.getDate() - 7);
-            break;
-        case 'month':
-            start.setMonth(end.getMonth() - 1);
-            break;
-        case 'year':
-            start.setFullYear(end.getFullYear() - 1);
-            break;
+        case 'week':  offset.setDate(now.getDate() - 7); break;
+        case 'month': offset.setMonth(now.getMonth() - 1); break;
+        case 'year':  offset.setFullYear(now.getFullYear() - 1); break;
     }
-    return start;
+    return toClinicYYYYMMDD(offset, timeZone);
 };
 
 
@@ -94,8 +92,8 @@ export default function ClinicDashboardPage() {
     const [kpiError, setKpiError] = useState<string | null>(null);
     const [activeFilter, setActiveFilter] = useState<DateFilterType>('month');
     const [customRange, setCustomRange] = useState({
-        start: toYYYYMMDD(getStartDate('month')),
-        end: toYYYYMMDD(new Date())
+        start: getStartDateStr('month', clinicTimezone),
+        end: toClinicYYYYMMDD(new Date(), clinicTimezone)
     });
 
     // --- NEW: State for Modals ---
@@ -112,8 +110,8 @@ export default function ClinicDashboardPage() {
             
             let range = { ...customRange };
             if (activeFilter !== 'custom') {
-                range.start = toYYYYMMDD(getStartDate(activeFilter));
-                range.end = toYYYYMMDD(new Date());
+                range.start = getStartDateStr(activeFilter, clinicTimezone);
+                range.end = toClinicYYYYMMDD(new Date(), clinicTimezone);
             }
 
             try {

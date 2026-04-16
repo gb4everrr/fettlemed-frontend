@@ -1,12 +1,16 @@
 // src/lib/utils/datetime.ts
 
-export const formatDateTime = (utcIsoString: string, timeZone: string = 'UTC') => {
+/**
+ * Format a UTC ISO string for display in a specific IANA timezone.
+ * timeZone is required — always pass the clinic's timezone.
+ */
+export const formatDateTime = (utcIsoString: string, timeZone: string) => {
   if (!utcIsoString) return '';
   try {
     const date = new Date(utcIsoString);
     if (isNaN(date.getTime())) return utcIsoString;
     return date.toLocaleString(undefined, {
-      timeZone: timeZone,
+      timeZone,
       weekday: 'short',
       month: 'short',
       day: 'numeric',
@@ -21,7 +25,11 @@ export const formatDateTime = (utcIsoString: string, timeZone: string = 'UTC') =
   }
 };
 
-export const formatTimeOnly = (utcIsoString: string, timeZone: string = 'UTC') => {
+/**
+ * Format only the time portion of a UTC ISO string in a specific IANA timezone.
+ * timeZone is required — always pass the clinic's timezone.
+ */
+export const formatTimeOnly = (utcIsoString: string, timeZone: string) => {
   if (!utcIsoString) return '';
   try {
     const date = new Date(utcIsoString);
@@ -30,6 +38,30 @@ export const formatTimeOnly = (utcIsoString: string, timeZone: string = 'UTC') =
   } catch (e) {
     return utcIsoString;
   }
+};
+
+/**
+ * Returns "YYYY-MM-DD" representing today's date in the given clinic timezone.
+ * Use this instead of new Date().toISOString().split('T')[0] for clinic-aware "today".
+ */
+export const getClinicDateString = (timeZone: string): string => {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+};
+
+/**
+ * Returns a Date offset so that its local (browser) methods return the
+ * clinic-timezone values — useful only for calendar grid positioning.
+ * Do NOT store or send this date anywhere; it is for display arithmetic only.
+ */
+export const toClinicDisplayDate = (utcIsoString: string, timeZone: string): Date => {
+  const date = new Date(utcIsoString);
+  const zonedString = date.toLocaleString('en-US', { timeZone });
+  return new Date(zonedString);
 };
 
 export const getWeekDays = (date: Date) => {

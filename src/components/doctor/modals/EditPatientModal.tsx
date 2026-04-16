@@ -16,8 +16,9 @@ interface PatientData {
   address: string | null;
   emergency_contact: string | null;
   patient_code: string | null;
-  date_of_birth?: string | null; // Placeholder for future backend update
-  gender?: string | null;        // Placeholder for future backend update
+  dob?: string | null;
+  date_of_birth?: string | null;
+  gender?: string | null;
 }
 
 interface EditPatientModalProps {
@@ -36,9 +37,8 @@ export function EditPatientModal({ patient, clinicId, onClose, onPatientUpdated 
     address: '',
     emergency_contact: '',
     patient_code: '',
-    // Add these when backend is ready
-    // date_of_birth: '',
-    // gender: ''
+    dob: '',
+    gender: 'Male',
   });
   
   const [isLoading, setIsLoading] = useState(false);
@@ -55,11 +55,17 @@ export function EditPatientModal({ patient, clinicId, onClose, onPatientUpdated 
         address: patient.address || '',
         emergency_contact: patient.emergency_contact || '',
         patient_code: patient.patient_code || '',
+        dob: (patient.dob || patient.date_of_birth || '').split('T')[0], // normalise to YYYY-MM-DD
+        gender: patient.gender || 'Male',
       });
     }
   }, [patient]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
+
+  const handleSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
@@ -110,6 +116,51 @@ export function EditPatientModal({ patient, clinicId, onClose, onPatientUpdated 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                <Input id="patient_code" label="Patient Code" name="patient_code" value={formData.patient_code} onChange={handleChange} />
                <Input id="phone_number" label="Phone Number" name="phone_number" value={formData.phone_number} onChange={handleChange} required />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* DOB with live age display */}
+              <div>
+                <label htmlFor="dob" className="block text-sm font-medium text-gray-700 mb-1">
+                  Date of Birth
+                  {formData.dob && (() => {
+                    const birth = new Date(formData.dob);
+                    if (!isNaN(birth.getTime())) {
+                      const today = new Date();
+                      let age = today.getFullYear() - birth.getFullYear();
+                      const m = today.getMonth() - birth.getMonth();
+                      if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+                      return age >= 0 ? <span className="ml-2 text-xs font-normal text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">{age} yrs</span> : null;
+                    }
+                  })()}
+                </label>
+                <input
+                  id="dob"
+                  name="dob"
+                  type="date"
+                  value={formData.dob}
+                  onChange={handleChange}
+                  max={new Date().toISOString().split('T')[0]}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+
+              {/* Gender */}
+              <div>
+                <label htmlFor="gender" className="block text-sm font-medium text-gray-700 mb-1">Gender</label>
+                <select
+                  id="gender"
+                  name="gender"
+                  value={formData.gender}
+                  onChange={handleSelectChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                  <option value="Other">Other</option>
+                  <option value="Prefer not to say">Prefer not to say</option>
+                </select>
+              </div>
             </div>
 
             <Input id="email" label="Email" name="email" type="email" value={formData.email} onChange={handleChange} />

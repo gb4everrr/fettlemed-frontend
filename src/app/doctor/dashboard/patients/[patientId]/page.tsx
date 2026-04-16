@@ -21,7 +21,9 @@ import {
   Building,
   Pencil,
   CalendarPlus,
-  Stethoscope
+  Stethoscope,
+  Pill,
+  Calendar as CalendarIcon
 } from 'lucide-react';
 
 // --- Import Modals ---
@@ -49,6 +51,7 @@ export default function DoctorPatientProfilePage() {
   
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [prescriptions, setPrescriptions] = useState<any[]>([]);
 
   // UI State
   const [activeTab, setActiveTab] = useState('Summary');
@@ -159,6 +162,20 @@ export default function DoctorPatientProfilePage() {
         setPatient(enrichedPatient);
         setAppointments(finalAppointments);
 
+        // Fetch prescriptions for all resolved appointments in parallel
+        if (finalAppointments.length > 0) {
+          const rxResults = await Promise.allSettled(
+            finalAppointments.map((a: any) =>
+              api.get(`/prescriptions/appointment/${a.id}`, { params: { clinic_id: a.clinic_id } })
+            )
+          );
+          const allRx = rxResults.flatMap((r) =>
+            r.status === 'fulfilled' ? (r.value.data.meds ?? []) : []
+          );
+          allRx.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+          setPrescriptions(allRx);
+        }
+
     } catch (err: any) {
         console.error('Failed to fetch patient data:', err);
         setError(err.response?.data?.error || 'Failed to load patient profile.');
@@ -253,6 +270,29 @@ export default function DoctorPatientProfilePage() {
 
   const latestVitals = vitalsHistory.length > 0 ? vitalsHistory[0] : null;
 
+  // --- Helpers: DOB / Age ---
+  const dobString = patient?.dob ?? patient?.date_of_birth ?? null;
+
+  const calculateAge = (dob: string | null | undefined): string => {
+    if (!dob) return '--';
+    const birth = new Date(dob);
+    if (isNaN(birth.getTime())) return '--';
+    const today = new Date();
+    let age = today.getFullYear() - birth.getFullYear();
+    const m = today.getMonth() - birth.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+    return age >= 0 ? String(age) : '--';
+  };
+
+  const formatDob = (dob: string | null | undefined): string => {
+    if (!dob) return '--/--/----';
+    const datePart = dob.split('T')[0];
+    const parts = datePart.split('-');
+    if (parts.length !== 3) return '--/--/----';
+    const [year, month, day] = parts;
+    return `${day}/${month}/${year}`;
+  };
+
   const getStatusBadge = (status?: number) => {
     switch (status) {
         case 0: return <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-medium">Pending</span>;
@@ -310,12 +350,41 @@ export default function DoctorPatientProfilePage() {
                 </div>
 
                 <div className="flex flex-wrap gap-4 text-sm text-gray-600">
-                    <span>DOB: <strong className="text-gray-900">{patient.date_of_birth || '--/--/----'}</strong></span>
+                    <span>Age: <strong className="text-gray-900">{calculateAge(dobString)}</strong></span>
+                    <span className="text-gray-300">|</span>
+                    <span>DOB: <strong className="text-gray-900">{formatDob(dobString)}</strong></span>
                     <span className="text-gray-300">|</span>
                     <span>Gender: <strong className="text-gray-900">{patient.gender || '--'}</strong></span>
                     <span className="text-gray-300">|</span>
                     <span>Phone: <strong className="text-gray-900">{patient.phone_number || '--'}</strong></span>
                 </div>
+
+                {/* Active Medications */}
+                {prescriptions.filter((rx: any) => rx.is_active).length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-gray-100">
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Active Medications</p>
+                    <div className="flex flex-wrap gap-2">
+                      {prescriptions
+                        .filter((rx: any) => rx.is_active)
+                        .slice(0, 5)
+                        .map((rx: any) => (
+                          <span
+                            key={rx.id}
+                            className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-800 border border-blue-100 text-xs font-medium px-2.5 py-1 rounded-full"
+                            title={[rx.dose, rx.frequency, rx.duration].filter(Boolean).join(' · ')}
+                          >
+                            {rx.drug_name}
+                            {rx.dose && <span className="text-blue-500 font-normal">{rx.dose}</span>}
+                          </span>
+                        ))}
+                      {prescriptions.filter((rx: any) => rx.is_active).length > 5 && (
+                        <span className="inline-flex items-center bg-gray-100 text-gray-500 text-xs px-2.5 py-1 rounded-full">
+                          +{prescriptions.filter((rx: any) => rx.is_active).length - 5} more
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -501,11 +570,95 @@ export default function DoctorPatientProfilePage() {
         )}
         
         {/* Placeholder Tabs */}
-        {['Prescriptions', 'Documents'].includes(activeTab) && (
+        {['Documents'].includes(activeTab) && (
              <Card padding="lg" className="text-center py-12">
                  <FileCheck className="h-10 w-10 text-gray-300 mx-auto mb-3" />
                  <p className="text-gray-500">No {activeTab.toLowerCase()} found.</p>
              </Card>
+        )}
+
+        {/* PRESCRIPTIONS TAB */}
+        {activeTab === 'Prescriptions' && (
+          <div className="space-y-4">
+            {prescriptions.length === 0 ? (
+              <Card padding="lg" className="text-center text-gray-500">
+                <Pill className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                <p>No prescriptions recorded for this patient.</p>
+              </Card>
+            ) : (
+              Array.from(new Set(prescriptions.map((rx: any) => rx.appointment_id))).map((apptId) => {
+                const appt = appointments.find((a) => a.id === apptId);
+                const apptRx = prescriptions.filter((rx: any) => rx.appointment_id === apptId);
+                const activeRx = apptRx.filter((rx: any) => rx.is_active);
+                const inactiveRx = apptRx.filter((rx: any) => !rx.is_active);
+
+                return (
+                  <Card key={apptId as number} padding="md" className="shadow-sm">
+                    {/* Appointment Header */}
+                    <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
+                      <div className="flex items-center gap-2 text-sm text-gray-600">
+                        <CalendarIcon className="h-4 w-4 text-gray-400" />
+                        <span className="font-medium text-gray-800">
+                          {appt ? new Date(appt.datetime_start).toLocaleDateString('en-GB', {
+                            day: 'numeric', month: 'short', year: 'numeric'
+                          }) : `Appointment #${apptId}`}
+                        </span>
+                        {appt?.doctor && (
+                          <>
+                            <span className="text-gray-300">·</span>
+                            <span>Dr. {appt.doctor.first_name} {appt.doctor.last_name}</span>
+                          </>
+                        )}
+                        {appt?.clinic?.name && (
+                          <>
+                            <span className="text-gray-300">·</span>
+                            <span className="text-gray-400">{appt.clinic.name}</span>
+                          </>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-400">{apptRx.length} medication{apptRx.length !== 1 ? 's' : ''}</span>
+                    </div>
+
+                    {/* Medication Rows */}
+                    <div className="space-y-3">
+                      {activeRx.map((rx: any) => (
+                        <div key={rx.id} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6 p-3 bg-gray-50 rounded-lg border border-gray-100">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <Pill className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                            <span className="font-semibold text-gray-900 truncate">{rx.drug_name}</span>
+                            {rx.dose && <span className="text-sm text-gray-500 flex-shrink-0">{rx.dose}</span>}
+                          </div>
+                          <div className="flex flex-wrap gap-3 text-sm text-gray-500 sm:flex-shrink-0">
+                            {rx.frequency && (
+                              <span className="bg-white border border-gray-200 px-2 py-0.5 rounded text-xs">{rx.frequency}</span>
+                            )}
+                            {rx.duration && (
+                              <span className="bg-white border border-gray-200 px-2 py-0.5 rounded text-xs">{rx.duration}</span>
+                            )}
+                            {rx.instructions && (
+                              <span className="text-gray-400 text-xs italic">{rx.instructions}</span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                      {inactiveRx.length > 0 && (
+                        <div className="space-y-2 opacity-50">
+                          {inactiveRx.map((rx: any) => (
+                            <div key={rx.id} className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                              <Pill className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                              <span className="text-sm text-gray-500 line-through">{rx.drug_name}</span>
+                              {rx.dose && <span className="text-xs text-gray-400">{rx.dose}</span>}
+                              <span className="ml-auto text-xs text-gray-400">Discontinued</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </Card>
+                );
+              })
+            )}
+          </div>
         )}
 
       </div>

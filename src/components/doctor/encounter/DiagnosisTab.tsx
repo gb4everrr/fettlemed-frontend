@@ -1,11 +1,21 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import { Stethoscope, Plus, Trash2, AlertCircle, Save, Clock, User } from 'lucide-react';
+import { Stethoscope, Plus, Trash2, AlertCircle, Save, Clock, User, ChevronLeft, ChevronRight, Ban } from 'lucide-react';
 // @ts-ignore
 import api from '@/services/api';
 import Button from '@/components/ui/Button';
 
-export const DiagnosisTab = ({ appointment, user, clinicId }: any) => {
+export const DiagnosisTab = ({
+  appointment,
+  user,
+  clinicId,
+  onNext,
+  onBack,
+  hasNext = false,
+  hasBack = false,
+  /** When true the tab is fully read-only regardless of server permissions */
+  isCancelled = false,
+}: any) => {
   const [list, setList] = useState<any[]>([]);
   const [comments, setComments] = useState('');
   const [permissions, setPermissions] = useState<{can_edit?: boolean}>({ can_edit: false });
@@ -13,7 +23,8 @@ export const DiagnosisTab = ({ appointment, user, clinicId }: any) => {
   const [results, setResults] = useState<any[]>([]);
   const [savingComments, setSavingComments] = useState(false);
 
-  const canEdit = permissions?.can_edit === true;
+  // Respect cancellation — never allow editing
+  const canEdit = !isCancelled && permissions?.can_edit === true;
 
   useEffect(() => {
     if (appointment?.id && clinicId) {
@@ -51,6 +62,7 @@ export const DiagnosisTab = ({ appointment, user, clinicId }: any) => {
   };
 
   const addDiagnosis = async (item: any) => {
+    if (!canEdit) return;
     try {
         await api.post('/diagnosis/add', {
             appointment_id: appointment.id,
@@ -66,6 +78,7 @@ export const DiagnosisTab = ({ appointment, user, clinicId }: any) => {
   };
 
   const removeDiagnosis = async (id: number) => {
+    if (!canEdit) return;
     if(!confirm("Remove this diagnosis?")) return;
     try {
         await api.delete(`/diagnosis/${id}`, { 
@@ -76,6 +89,7 @@ export const DiagnosisTab = ({ appointment, user, clinicId }: any) => {
   };
 
   const saveComments = async () => {
+    if (!canEdit) return;
     setSavingComments(true);
     try {
         await api.post('/diagnosis/comments', {
@@ -88,11 +102,16 @@ export const DiagnosisTab = ({ appointment, user, clinicId }: any) => {
   };
 
   return (
-    <div className="space-y-6 h-full flex flex-col">
+    <div className="space-y-6 h-full flex flex-col pb-24">
       {/* HEADER */}
       <div className="flex items-center gap-2 pb-4 border-b shrink-0">
         <Stethoscope className="w-5 h-5 text-var(--color-primary-brand)" />
         <h2 className="text-xl font-semibold text-gray-800">Diagnosis & Problems</h2>
+        {isCancelled && (
+          <span className="ml-auto flex items-center gap-1.5 text-xs font-semibold text-red-600 bg-red-50 border border-red-200 px-3 py-1 rounded-full">
+            <Ban className="w-3 h-3" /> Read-only
+          </span>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full min-h-0">
@@ -102,7 +121,6 @@ export const DiagnosisTab = ({ appointment, user, clinicId }: any) => {
              <div className="p-4 bg-white border-b border-gray-200">
                  <h3 className="font-semibold text-gray-700 mb-3">Clinical Diagnosis</h3>
                  
-                 {/* SEARCH BAR */}
                  {canEdit ? (
                      <div className="relative">
                          <input 
@@ -127,12 +145,12 @@ export const DiagnosisTab = ({ appointment, user, clinicId }: any) => {
                      </div>
                  ) : (
                      <div className="text-xs text-gray-500 flex items-center gap-1 bg-gray-50 p-2 rounded-lg">
-                        <AlertCircle className="w-3 h-3"/> View-only mode
+                        <AlertCircle className="w-3 h-3"/>
+                        {isCancelled ? 'Appointment cancelled — view only' : 'View-only mode'}
                      </div>
                  )}
              </div>
 
-             {/* ADDED LIST */}
              <div className="flex-1 overflow-y-auto p-0 bg-white">
                  {list.length === 0 ? (
                      <div className="p-10 text-center text-gray-400 text-sm">No diagnoses added.</div>
@@ -143,7 +161,6 @@ export const DiagnosisTab = ({ appointment, user, clinicId }: any) => {
                                  <div>
                                      <p className="font-semibold text-gray-800 text-sm">{item.description}</p>
                                      <p className="text-xs text-var(--color-primary-brand) font-mono mt-0.5">{item.code || 'Uncoded'}</p>
-                                     {/* AUDIT TRAIL */}
                                      <div className="flex items-center gap-3 mt-1 text-[10px] text-gray-400">
                                         <span className="flex items-center gap-1"><User className="w-3 h-3"/> {item.added_by_name || 'System'}</span>
                                         <span className="flex items-center gap-1"><Clock className="w-3 h-3"/> {new Date(item.created_at).toLocaleTimeString()}</span>
@@ -177,7 +194,7 @@ export const DiagnosisTab = ({ appointment, user, clinicId }: any) => {
                   )}
               </div>
               <textarea 
-                  className="flex-1 w-full p-4 resize-none outline-none text-sm text-gray-700 focus:bg-blue-50/30 transition-colors bg-white"
+                  className={`flex-1 w-full p-4 resize-none outline-none text-sm text-gray-700 focus:bg-blue-50/30 transition-colors bg-white ${!canEdit ? 'cursor-not-allowed opacity-80' : ''}`}
                   placeholder={canEdit ? "Type clinical reasoning, differential diagnosis, or complex problem notes here..." : "No comments recorded."}
                   value={comments}
                   onChange={e => setComments(e.target.value)}

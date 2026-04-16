@@ -60,6 +60,7 @@ interface InvoiceListResponse {
 export default function ViewInvoicesPage() {
   const router = useRouter();
   const { user } = useAppSelector((state) => state.auth);
+  const clinicTimezone: string = (user as any)?.clinics?.[0]?.timezone || 'Asia/Kolkata';
 
   const [invoices, setInvoices] = useState<InvoiceData[]>([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -120,7 +121,8 @@ export default function ViewInvoicesPage() {
     return date.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'long',
-      day: 'numeric'
+      day: 'numeric',
+      timeZone: clinicTimezone
     });
   };
 
@@ -132,7 +134,8 @@ export default function ViewInvoicesPage() {
       day: 'numeric',
       hour: 'numeric',
       minute: '2-digit',
-      hour12: true
+      hour12: true,
+      timeZone: clinicTimezone
     });
   };
 

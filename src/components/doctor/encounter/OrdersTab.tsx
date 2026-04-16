@@ -1,20 +1,31 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Beaker, Search, Plus, Clock, AlertCircle, Loader2 } from 'lucide-react';
+import { Beaker, Search, Plus, Clock, AlertCircle, Loader2, ChevronLeft, ChevronRight, Save, Ban } from 'lucide-react';
 // @ts-ignore
 import api from '@/services/api';
 // @ts-ignore
 import Button from '@/components/ui/Button';
 
-export const OrdersTab = ({ appointment, user, clinicId }: any) => {
+export const OrdersTab = ({
+  appointment,
+  user,
+  clinicId,
+  onNext,
+  onBack,
+  hasNext = false,
+  hasBack = false,
+  /** When true the tab is fully read-only regardless of server permissions */
+  isCancelled = false,
+}: any) => {
   const [orders, setOrders] = useState<any[]>([]);
   const [search, setSearch] = useState('');
   const [results, setResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [permissions, setPermissions] = useState<{can_edit?: boolean}>({ can_edit: false });
 
-  const canOrder = permissions.can_edit; 
+  // Respect cancellation — never allow ordering
+  const canOrder = !isCancelled && permissions.can_edit; 
 
   const fetchOrders = async () => {
     try {
@@ -38,6 +49,7 @@ export const OrdersTab = ({ appointment, user, clinicId }: any) => {
   }, [appointment.id]);
 
   const handleSearch = async (val: string) => {
+    if (!canOrder) return;
     setSearch(val);
     if (val.length < 2) return setResults([]);
     
@@ -55,6 +67,7 @@ export const OrdersTab = ({ appointment, user, clinicId }: any) => {
   };
 
   const placeOrder = async (test: any) => {
+    if (!canOrder) return;
     try {
       setLoading(true);
       await api.post('/lab-orders/create', {
@@ -74,11 +87,16 @@ export const OrdersTab = ({ appointment, user, clinicId }: any) => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-24">
       <div className="flex justify-between items-center pb-4 border-b">
         <h2 className="text-xl font-semibold text-gray-800 flex items-center gap-2">
           <Beaker className="w-5 h-5 text-var(--color-primary-brand)"/> Orders & Investigations
         </h2>
+        {isCancelled && (
+          <span className="flex items-center gap-1.5 text-xs font-semibold text-red-600 bg-red-50 border border-red-200 px-3 py-1 rounded-full">
+            <Ban className="w-3 h-3" /> Read-only
+          </span>
+        )}
       </div>
 
       {/* SEARCH SECTION */}
@@ -113,8 +131,11 @@ export const OrdersTab = ({ appointment, user, clinicId }: any) => {
           )}
         </div>
       ) : (
-        <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 text-sm text-gray-500 flex items-center gap-2">
-          <AlertCircle className="w-4 h-4" /> View-only access: Orders can only be placed by the assigned doctor.
+        <div className={`p-4 rounded-xl border text-sm flex items-center gap-2 ${isCancelled ? 'bg-red-50 border-red-200 text-red-600' : 'bg-gray-50 border-gray-200 text-gray-500'}`}>
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          {isCancelled
+            ? 'Appointment cancelled — lab orders are locked and cannot be modified.'
+            : 'View-only access: Orders can only be placed by the assigned doctor.'}
         </div>
       )}
 

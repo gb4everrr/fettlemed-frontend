@@ -56,6 +56,7 @@ interface ClinicService {
 export default function BillingPage() {
   const router = useRouter();
   const { user } = useAppSelector((state) => state.auth);
+  const clinicTimezone: string = (user as any)?.clinics?.[0]?.timezone || 'Asia/Kolkata';
   
   // Tabs: 'invoices' | 'services'
   const [activeTab, setActiveTab] = useState<'invoices' | 'services'>('invoices');
@@ -235,7 +236,7 @@ export default function BillingPage() {
                    <div className="text-right">
                       <p className="text-gray-500">Invoice ID</p>
                       <p className="font-mono font-bold text-gray-800">#{viewInvoice.id}</p>
-                      <p className="text-gray-400">{new Date(viewInvoice.invoice_date).toLocaleString()}</p>
+                      <p className="text-gray-400">{new Date(viewInvoice.invoice_date).toLocaleString('en-US', { timeZone: clinicTimezone, year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}</p>
                    </div>
                 </div>
                 

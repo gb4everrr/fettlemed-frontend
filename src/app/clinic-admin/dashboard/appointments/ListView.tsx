@@ -235,10 +235,10 @@ function AppointmentList({ appointments, clinicTimezone, onAppointmentClick, onC
                           {formatClinicTime(appointment.datetime_start, clinicTimezone)}
                       </span>
                       <span className="text-xs text-gray-600 mt-1 font-semibold">
-                          {new Date(appointment.datetime_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          {new Date(appointment.datetime_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: clinicTimezone })}
                       </span>
                       <span className="text-[10px] text-gray-400 uppercase tracking-wider">
-                          {new Date(appointment.datetime_start).toLocaleDateString('en-US', { weekday: 'short' })}
+                          {new Date(appointment.datetime_start).toLocaleDateString('en-US', { weekday: 'short', timeZone: clinicTimezone })}
                       </span>
                   </div>
 

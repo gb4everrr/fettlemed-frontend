@@ -53,7 +53,7 @@ export default function RegisterPage() {
     try {
       // CORRECTED: Remove /api from the path
       const response = await api.post('/auth/register', { // Changed from '/api/auth/register'
-        email,
+        email: email.toLowerCase().trim(), 
         password,
         role,
         first_name: firstName,

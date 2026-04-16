@@ -49,7 +49,7 @@ export interface ClinicPatient {
   gender?: string | null;
   allergies?: string[];
   chronic_conditions?: string[];
-  dob?: string;
+  dob?: string | null;
 }
 
 export interface AvailableSlot {

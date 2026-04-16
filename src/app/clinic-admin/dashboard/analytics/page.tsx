@@ -44,6 +44,7 @@ const CustomTooltip = ({ active, payload, label, formatter }: any) => {
 export default function AnalyticsPage() {
   const { user } = useAppSelector((state: any) => state.auth);
   const clinicId = user?.clinics?.[0]?.id;
+  const clinicTimezone: string = user?.clinics?.[0]?.timezone || 'Asia/Kolkata';
 
   const [activeTab, setActiveTab] = useState<'performance' | 'operational' | 'financial'>('performance');
   const [loading, setLoading] = useState(false);
@@ -53,19 +54,18 @@ export default function AnalyticsPage() {
   const [opsData, setOpsData] = useState<any>(null);
   const [financeData, setFinanceData] = useState<any>(null);
 
-  // Default date range: Last 30 days
+  // Returns YYYY-MM-DD for a Date in the clinic's timezone
+  const toClinicDateStr = (date: Date): string =>
+    new Intl.DateTimeFormat('en-CA', { timeZone: clinicTimezone }).format(date);
+
+  // Default date range: Last 30 days in clinic timezone
   const getDefaultStartDate = () => {
-    const date = new Date();
-    date.setDate(date.getDate() - 30);
-    date.setHours(0, 0, 0, 0);
-    return date;
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d;
   };
 
-  const getDefaultEndDate = () => {
-    const date = new Date();
-    date.setHours(0, 0, 0, 0);
-    return date;
-  };
+  const getDefaultEndDate = () => new Date();
 
   const [dateRange, setDateRange] = useState({
     start: getDefaultStartDate(),
@@ -80,10 +80,10 @@ export default function AnalyticsPage() {
   const fetchData = async (tab: string) => {
     setLoading(true);
     try {
-      const params = { 
-        clinic_id: clinicId, 
-        startDate: dateRange.start.toISOString().split('T')[0], 
-        endDate: dateRange.end.toISOString().split('T')[0]
+      const params = {
+        clinic_id: clinicId,
+        startDate: toClinicDateStr(dateRange.start),
+        endDate: toClinicDateStr(dateRange.end)
       };
       
       if (tab === 'performance') {
